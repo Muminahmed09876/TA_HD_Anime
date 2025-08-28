@@ -10,6 +10,8 @@ from pymongo import MongoClient
 from dotenv import load_dotenv
 from flask import Flask, render_template_string
 import requests
+import re
+import math
 
 # --- Load Environment Variables ---
 load_dotenv()
@@ -36,12 +38,11 @@ user_list = set()
 last_filter = None
 banned_users = set()
 restrict_status = False
-autodelete_time = 0 
+autodelete_time = 0
 deep_link_keyword = None
 user_states = {}
 
 # --- Join Channels Configuration ---
-# Your original code used these variables. They are included here to avoid changes.
 CHANNEL_ID_2 = -1003049936443
 CHANNEL_LINK = "https://t.me/TA_HD_Anime"
 join_channels = [{"id": CHANNEL_ID_2, "name": "TA HD Anime Hindi Official Dubbed", "link": CHANNEL_LINK}]
@@ -125,8 +126,15 @@ def save_data():
     
     str_user_states = {str(uid): state for uid, state in user_states.items()}
 
+    savable_filters = {}
+    for key, data in filters_dict.items():
+        savable_filters[key] = {
+            'buttons': [{'text': btn['text'], 'url': btn.get('url')} for btn in data['buttons']],
+            'files': data['files']
+        }
+
     data = {
-        "filters_dict": filters_dict,
+        "filters_dict": savable_filters,
         "user_list": list(user_list),
         "last_filter": last_filter,
         "banned_users": list(banned_users),
@@ -141,7 +149,14 @@ def load_data():
     global filters_dict, user_list, last_filter, banned_users, restrict_status, autodelete_time, user_states
     data = collection.find_one({"_id": "bot_data"})
     if data:
-        filters_dict = data.get("filters_dict", {})
+        loaded_filters = data.get("filters_dict", {})
+        filters_dict = {
+            key: {
+                'buttons': [{'text': btn['text'], 'url': btn.get('url')} for btn in btn_list['buttons']],
+                'files': btn_list['files']
+            }
+            for key, btn_list in loaded_filters.items()
+        }
         user_list = set(data.get("user_list", []))
         banned_users = set(data.get("banned_users", []))
         last_filter = data.get("last_filter", None)
@@ -163,45 +178,6 @@ app = Client(
 )
 
 # --- Helper Functions (Pyrogram) ---
-async def is_member(client, user_id):
-    try:
-        member = await client.get_chat_member(CHANNEL_ID_2, user_id)
-        return member.status in ['member', 'administrator', 'creator']
-    except Exception as e:
-        print(f"Error Aa Gayi Hai Bhai: {str(e)}")
-        return False
-
-# This function is not used in the final version but kept as per your original code.
-async def check_access(update, client):
-    if not await is_member(client, update.effective_user.id):
-        Keyboard = [
-            [InlineKeyboardButton('Join Our Channel', url=CHANNEL_LINK)],
-            [InlineKeyboardButton('Verify', callback_data='verify_membership')]
-        ]
-        await update.message.reply_text(
-            "Bhai Meri Channel Ko Join Karle",
-            reply_markup=InlineKeyboardMarkup(Keyboard)
-        )
-        return False
-    return True
-
-# This function is not used in the final version but kept as per your original code.
-async def handle_callback(client, callback_query):
-    query = callback_query
-    await query.answer()
-
-    if query.data == 'verify_membership':
-        if await is_member(client, query.from_user.id):
-            await query.edit_message_text("You Joined")
-        else:
-            await query.edit_message_text("You Didnt Joined")
-
-# This function is not used in the final version but kept as per your original code.
-async def start_ptb(update, context):
-    if not await check_access(update, context):
-        return
-    await context.bot.send_message(chat_id=update.effective_chat.id,text="This Is TraxDinosaur")
-    
 async def is_user_member(client, user_id):
     try:
         await client.get_chat_member(CHANNEL_ID_2, user_id)
@@ -219,6 +195,68 @@ async def delete_messages_later(chat_id, message_ids, delay_seconds):
         print(f"Successfully deleted messages {message_ids} in chat {chat_id}.")
     except Exception as e:
         print(f"Error deleting messages {message_ids} in chat {chat_id}: {e}")
+
+async def create_filter_buttons_with_pagination(keyword, page=0, for_edit=False):
+    filter_data = filters_dict.get(keyword, None)
+    if not filter_data:
+        return None
+
+    all_buttons = filter_data['buttons']
+    files = filter_data['files']
+
+    if files:
+        for file_id in files:
+            all_buttons.append({'text': f"File: {file_id}", 'url': None, 'is_file': True, 'id': file_id})
+    
+    per_page = 10
+    total_pages = math.ceil(len(all_buttons) / per_page)
+    start_index = page * per_page
+    end_index = start_index + per_page
+    
+    current_page_buttons = all_buttons[start_index:end_index]
+    
+    keyboard_buttons = []
+    
+    if for_edit:
+        keyboard_buttons.append([InlineKeyboardButton(f"🎬 {keyword} 🎬", callback_data=f"edit_filter_{keyword}")])
+        for i, btn_data in enumerate(current_page_buttons):
+            button_text = f"{i + start_index + 1}. {btn_data['text']}"
+            if btn_data.get('is_file'):
+                callback_data = f"send_file_{btn_data['id']}"
+                keyboard_buttons.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
+            else:
+                url = btn_data.get('url', 'https://t.me/TA_HD_Anime') # default to avoid errors
+                keyboard_buttons.append([InlineKeyboardButton(button_text, url=url)])
+    else:
+        keyboard_buttons.append([InlineKeyboardButton(f"🎬 {keyword} 🎬", callback_data=f"filter_info_{keyword}")])
+        for btn_data in current_page_buttons:
+            if btn_data.get('is_file'):
+                keyboard_buttons.append([InlineKeyboardButton(btn_data['text'], callback_data=f"send_file_{btn_data['id']}")])
+            else:
+                keyboard_buttons.append([InlineKeyboardButton(btn_data['text'], url=btn_data['url'])])
+    
+    if total_pages > 1:
+        nav_buttons = []
+        if page > 0:
+            nav_buttons.append(InlineKeyboardButton("⬅️ Previous", callback_data=f"page_{page - 1}_{keyword}{'_edit' if for_edit else ''}"))
+        
+        nav_buttons.append(InlineKeyboardButton(f"{page + 1}/{total_pages}", callback_data="ignore"))
+
+        if page + 1 < total_pages:
+            nav_buttons.append(InlineKeyboardButton("Next ➡️", callback_data=f"page_{page + 1}_{keyword}{'_edit' if for_edit else ''}"))
+        
+        keyboard_buttons.append(nav_buttons)
+
+    if for_edit:
+        edit_nav_buttons = [
+            InlineKeyboardButton("➕ Add Button", callback_data=f"add_link_{keyword}"),
+            InlineKeyboardButton("🗑️ Delete Button", callback_data=f"delete_link_{keyword}"),
+            InlineKeyboardButton("🔄 Set Button", callback_data=f"set_link_{keyword}")
+        ]
+        keyboard_buttons.append(edit_nav_buttons)
+
+    return InlineKeyboardMarkup(keyboard_buttons)
+
 
 # --- Message Handlers (Pyrogram) ---
 @app.on_message(filters.command("start") & filters.private)
@@ -261,8 +299,6 @@ async def start_cmd(client, message):
             print(f"Failed to log deep link message: {e}")
 
     if not await is_user_member(client, user_id):
-        # The key change is to use a URL button instead of a callback for "Try Again"
-        # This will open the deep link and re-trigger the bot's start command.
         bot_username = (await client.get_me()).username
         try_again_url = f"https://t.me/{bot_username}?start={deep_link_keyword}" if deep_link_keyword else f"https://t.me/{bot_username}"
         
@@ -277,33 +313,14 @@ async def start_cmd(client, message):
         )
 
     if deep_link_keyword:
-        keyword = deep_link_keyword
-        if keyword in filters_dict and filters_dict[keyword]:
-            if autodelete_time > 0:
-                minutes = autodelete_time // 60
-                hours = autodelete_time // 3600
-                if hours > 0:
-                    delete_time_str = f"{hours} hour{'s' if hours > 1 else ''}"
-                else:
-                    delete_time_str = f"{minutes} minute{'s' if minutes > 1 else ''}"
-                await message.reply_text(f"✅ **Files found!** Sending now. Please note, these files will be automatically deleted in **{delete_time_str}**.", parse_mode=ParseMode.MARKDOWN)
+        keyword = deep_link_keyword.lower()
+        
+        if keyword in filters_dict:
+            keyboard = await create_filter_buttons_with_pagination(keyword)
+            if keyboard:
+                await message.reply_text(f"🎬 **Files for '{keyword}':**", reply_markup=keyboard, parse_mode=ParseMode.MARKDOWN)
             else:
-                await message.reply_text(f"✅ **Files found!** Sending now...")
-            sent_message_ids = []
-            for file_id in filters_dict[keyword]:
-                try:
-                    sent_msg = await app.copy_message(message.chat.id, CHANNEL_ID, file_id, protect_content=restrict_status)
-                    sent_message_ids.append(sent_msg.id)
-                    await asyncio.sleep(0.5)
-                except FloodWait as e:
-                    await asyncio.sleep(e.value)
-                    sent_msg = await app.copy_message(message.chat.id, CHANNEL_ID, file_id, protect_content=restrict_status)
-                    sent_message_ids.append(sent_msg.id)
-                except Exception as e:
-                    print(f"Error copying message {file_id}: {e}")
-            await message.reply_text("🎉 **All files sent!**")
-            if autodelete_time > 0:
-                asyncio.create_task(delete_messages_later(message.chat.id, sent_message_ids, autodelete_time))
+                await message.reply_text(f"❌ **No files or links found for '{keyword}'.**")
         else:
             await message.reply_text("❌ **No files found for this keyword.**")
         deep_link_keyword = None
@@ -312,8 +329,10 @@ async def start_cmd(client, message):
     if user_id == ADMIN_ID:
         admin_commands = (
             "🌟 **Welcome, Admin! Here are your commands:**\n\n"
+            "**/filter** - Create a new filter.\n"
+            "**/edit** - Edit an existing filter.\n"
+            "**/delete_filter** - Delete a filter.\n"
             "**/broadcast** - Reply to a message with this command to broadcast it to all users.\n"
-            "**/delete <keyword>** - Delete a filter and its associated files.\n"
             "**/restrict** - Toggle message forwarding restriction (ON/OFF).\n"
             "**/ban <user_id>** - Ban a user.\n"
             "**/unban <user_id>** - Unban a user.\n"
@@ -323,6 +342,194 @@ async def start_cmd(client, message):
         await message.reply_text(admin_commands, parse_mode=ParseMode.MARKDOWN)
     else:
         await message.reply_text("👋 **Welcome!** You can access files via special links.")
+
+
+@app.on_message(filters.command("filter") & filters.private & filters.user(ADMIN_ID))
+async def create_filter_cmd(client, message):
+    user_id = message.from_user.id
+    user_states[user_id] = {"command": "awaiting_filter_name"}
+    save_data()
+    await message.reply_text("🎬 **অনুগ্রহ করে একটি নতুন ফিল্টারের নাম দিন।**\n\n_উদাহরণ: TA HD Anime_")
+
+@app.on_message(filters.command("edit") & filters.private & filters.user(ADMIN_ID))
+async def edit_filter_cmd(client, message):
+    user_id = message.from_user.id
+    user_states[user_id] = {"command": "awaiting_edit_filter_name"}
+    save_data()
+    await message.reply_text("✏️ **অনুগ্রহ করে সেই ফিল্টারের নাম দিন যেটি আপনি এডিট করতে চান।**")
+
+@app.on_message(filters.command("delete_filter") & filters.private & filters.user(ADMIN_ID))
+async def delete_filter_by_name(client, message):
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        return await message.reply_text("📌 **ব্যবহার:** `/delete_filter <filter name>`")
+    
+    filter_name = args[1].lower().strip()
+    if filter_name in filters_dict:
+        del filters_dict[filter_name]
+        save_data()
+        await message.reply_text(f"✅ **ফিল্টার '{filter_name}' সফলভাবে মুছে ফেলা হয়েছে।**")
+    else:
+        await message.reply_text(f"❌ **ফিল্টার '{filter_name}' খুঁজে পাওয়া যায়নি।**")
+
+
+@app.on_message(filters.text & filters.private & filters.user(ADMIN_ID))
+async def handle_admin_text_input(client, message):
+    user_id = message.from_user.id
+    user_state = user_states.get(user_id, {})
+    
+    # --- Create Filter Logic ---
+    if user_state.get("command") == "awaiting_filter_name":
+        filter_name = message.text.lower().strip()
+        if filter_name in filters_dict:
+            return await message.reply_text("❌ **এই নামে একটি ফিল্টার ইতিমধ্যে বিদ্যমান আছে।**\n\n**অনুগ্রহ করে অন্য একটি নাম দিন।**")
+        
+        filters_dict[filter_name] = {'buttons': [], 'files': []}
+        save_data()
+        
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton(f"🎬 {filter_name.upper()} 🎬", callback_data="ignore")],
+            [InlineKeyboardButton("➕ Add Link Button", callback_data=f"add_link_{filter_name}")]
+        ])
+        
+        del user_states[user_id]
+        save_data()
+        await message.reply_text(
+            f"✅ **ফিল্টার '{filter_name}' তৈরি করা হয়েছে!**\n\nএখন আপনি লিঙ্ক বাটন যোগ করতে পারেন।",
+            reply_markup=keyboard,
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+    # --- Edit Filter Logic ---
+    elif user_state.get("command") == "awaiting_edit_filter_name":
+        filter_name = message.text.lower().strip()
+        if filter_name not in filters_dict:
+            del user_states[user_id]
+            return await message.reply_text("❌ **এই নামে কোনো ফিল্টার খুঁজে পাওয়া যায়নি।**")
+        
+        user_states[user_id] = {"command": "editing_filter", "keyword": filter_name}
+        save_data()
+        keyboard = await create_filter_buttons_with_pagination(filter_name, for_edit=True)
+        await message.reply_text(
+            f"✏️ **ফিল্টার '{filter_name}' এডিটের জন্য বিকল্পগুলি বেছে নিন।**",
+            reply_markup=keyboard,
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+    # --- Add Button Logic ---
+    elif user_state.get("command") == "awaiting_links":
+        filter_name = user_state['keyword']
+        link_data = message.text
+        
+        links = link_data.split(',')
+        for item in links:
+            parts = item.strip().split(' - ', 1)
+            if len(parts) == 2:
+                button_text = parts[0].strip()
+                link = parts[1].strip()
+                if filter_name in filters_dict:
+                    filters_dict[filter_name]['buttons'].append({'text': button_text, 'url': link})
+        save_data()
+        
+        del user_states[user_id]
+        save_data()
+        await message.reply_text("✅ **লিঙ্ক বাটনগুলো সফলভাবে যোগ করা হয়েছে!**")
+
+    # --- Delete Button Logic ---
+    elif user_state.get("command") == "awaiting_button_numbers_to_delete":
+        filter_name = user_state['keyword']
+        numbers_str = message.text.split(',')
+        try:
+            numbers_to_delete = sorted([int(n.strip()) for n in numbers_str], reverse=True)
+            filter_data = filters_dict[filter_name]
+            deleted_count = 0
+            for num in numbers_to_delete:
+                idx = num - 1
+                if 0 <= idx < len(filter_data['buttons']):
+                    del filter_data['buttons'][idx]
+                    deleted_count += 1
+            save_data()
+            del user_states[user_id]
+            save_data()
+            await message.reply_text(f"✅ **{deleted_count}টি বাটন সফলভাবে ডিলিট করা হয়েছে।**")
+        except (ValueError, IndexError):
+            del user_states[user_id]
+            save_data()
+            await message.reply_text("❌ **ভুল বাটন নম্বর। অনুগ্রহ করে সঠিক সংখ্যা কমা দিয়ে আলাদা করে দিন।**")
+
+    # --- Set Button (Swap) Logic ---
+    elif user_state.get("command") == "awaiting_button_swap_numbers":
+        filter_name = user_state['keyword']
+        swap_pairs_str = message.text.split(',')
+        try:
+            filter_data = filters_dict[filter_name]
+            for pair_str in swap_pairs_str:
+                parts = pair_str.strip().split('-')
+                if len(parts) == 2:
+                    idx1 = int(parts[0].strip()) - 1
+                    idx2 = int(parts[1].strip()) - 1
+                    if 0 <= idx1 < len(filter_data['buttons']) and 0 <= idx2 < len(filter_data['buttons']):
+                        filter_data['buttons'][idx1], filter_data['buttons'][idx2] = filter_data['buttons'][idx2], filter_data['buttons'][idx1]
+            save_data()
+            del user_states[user_id]
+            save_data()
+            await message.reply_text("✅ **বাটনগুলোর ক্রম সফলভাবে পরিবর্তন করা হয়েছে।**")
+        except (ValueError, IndexError):
+            del user_states[user_id]
+            save_data()
+            await message.reply_text("❌ **ভুল ফরম্যাট। অনুগ্রহ করে '1 - 2, 3 - 5' ফরম্যাট অনুসরণ করুন।**")
+    
+    # --- Edit Links Logic (Re-add all) ---
+    elif user_state.get("command") == "awaiting_edit_links":
+        filter_name = user_state['keyword']
+        link_data = message.text
+        
+        filters_dict[filter_name]['buttons'] = []
+        
+        links = link_data.split(',')
+        for item in links:
+            parts = item.strip().split(' - ', 1)
+            if len(parts) == 2:
+                button_text = parts[0].strip()
+                link = parts[1].strip()
+                if filter_name in filters_dict:
+                    filters_dict[filter_name]['buttons'].append({'text': button_text, 'url': link})
+        save_data()
+        
+        del user_states[user_id]
+        save_data()
+        await message.reply_text("✅ **লিঙ্ক বাটনগুলো সফলভাবে আপডেট করা হয়েছে!**")
+
+
+@app.on_message(filters.text & filters.private)
+async def handle_user_text_input(client, message):
+    if message.from_user.id == ADMIN_ID:
+        return
+    
+    user_id = message.from_user.id
+    if user_id in banned_users:
+        return await message.reply_text("❌ **You are banned from using this bot.**")
+
+    keyword = message.text.lower().strip()
+    if keyword in filters_dict:
+        if not await is_user_member(client, user_id):
+            return await message.reply_text(
+                "❌ **You must join the following channels to use this bot:**",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton(f"✅ Join TA_HD_How_To_Download", url=CHANNEL_LINK)],
+                    [InlineKeyboardButton("🔄 Try Again", url=f"https://t.me/{(await client.get_me()).username}?start={keyword}")]
+                ]),
+                parse_mode=ParseMode.MARKDOWN
+            )
+
+        keyboard = await create_filter_buttons_with_pagination(keyword)
+        if keyboard:
+            await message.reply_text(f"🎬 **Files for '{keyword}':**", reply_markup=keyboard, parse_mode=ParseMode.MARKDOWN)
+        else:
+            await message.reply_text(f"❌ **No files or links found for '{keyword}'.**")
+    else:
+        await message.reply_text("❌ **এই নামে কোনো ফিল্টার খুঁজে পাওয়া যায়নি।**")
+
 
 @app.on_message(filters.channel & filters.text & filters.chat(CHANNEL_ID))
 async def channel_text_handler(client, message):
@@ -335,7 +542,7 @@ async def channel_text_handler(client, message):
         last_filter = keyword
         save_data()
         if keyword not in filters_dict:
-            filters_dict[keyword] = []
+            filters_dict[keyword] = {'buttons': [], 'files': []}
             save_data()
             await app.send_message(
                 LOG_CHANNEL_ID,
@@ -350,8 +557,8 @@ async def channel_media_handler(client, message):
     if last_filter:
         keyword = last_filter
         if keyword not in filters_dict:
-            filters_dict[keyword] = []
-        filters_dict[keyword].append(message.id)
+            filters_dict[keyword] = {'buttons': [], 'files': []}
+        filters_dict[keyword]['files'].append(message.id)
         save_data()
     else:
         await app.send_message(LOG_CHANNEL_ID, "⚠️ **No active filter found.**")
@@ -372,6 +579,164 @@ async def channel_delete_handler(client, messages):
                 last_filter = None
                 await app.send_message(LOG_CHANNEL_ID, "📝 **Note:** The last active filter has been cleared.")
                 save_data()
+
+
+@app.on_callback_query(filters.regex("^add_link_"))
+async def add_link_callback(client, callback_query):
+    query = callback_query
+    user_id = query.from_user.id
+    if user_id != ADMIN_ID:
+        return await query.answer("❌ আপনি এই কমান্ড ব্যবহার করার জন্য অনুমোদিত নন।", show_alert=True)
+    keyword = query.data.split('_')[-1]
+    user_states[user_id] = {"command": "awaiting_links", "keyword": keyword}
+    save_data()
+    await query.message.edit_text(
+        "🔗 **অনুগ্রহ করে লিঙ্কগুলো নিচের ফরম্যাটে দিন:**\n\n_উদাহরণ: King 01 - https://example.com/king_01, King 02 - https://example.com/king_02_\n\n**আপনি একাধিক লিঙ্ক কমা (,) দিয়ে আলাদা করতে পারেন।**"
+    )
+
+@app.on_callback_query(filters.regex("^delete_link_"))
+async def delete_link_callback(client, callback_query):
+    query = callback_query
+    user_id = query.from_user.id
+    if user_id != ADMIN_ID:
+        return await query.answer("❌ আপনি এই কমান্ড ব্যবহার করার জন্য অনুমোদিত নন।", show_alert=True)
+    keyword = query.data.split('_')[-1]
+    user_states[user_id] = {"command": "awaiting_button_numbers_to_delete", "keyword": keyword}
+    save_data()
+    await query.message.edit_text(
+        "🗑️ **অনুগ্রহ করে সেই বাটনের নম্বরগুলো দিন যেগুলো আপনি ডিলিট করতে চান।**\n\n_উদাহরণ: 2, 5, 8_"
+    )
+
+@app.on_callback_query(filters.regex("^set_link_"))
+async def set_link_callback(client, callback_query):
+    query = callback_query
+    user_id = query.from_user.id
+    if user_id != ADMIN_ID:
+        return await query.answer("❌ আপনি এই কমান্ড ব্যবহার করার জন্য অনুমোদিত নন।", show_alert=True)
+    keyword = query.data.split('_')[-1]
+    user_states[user_id] = {"command": "awaiting_button_swap_numbers", "keyword": keyword}
+    save_data()
+    await query.message.edit_text(
+        "🔄 **অনুগ্রহ করে বাটন নম্বরগুলোর নতুন ক্রম দিন।**\n\n_উদাহরণ: 1 - 2, 3 - 5_"
+    )
+
+
+@app.on_callback_query(filters.regex("^edit_filter_"))
+async def edit_filter_callback(client, callback_query):
+    query = callback_query
+    user_id = query.from_user.id
+    if user_id != ADMIN_ID:
+        return await query.answer("❌ আপনি এই কমান্ড ব্যবহার করার জন্য অনুমোদিত নন।", show_alert=True)
+    
+    keyword = query.data.split('_')[-1]
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("➕ লিঙ্ক বাটন যোগ করুন", callback_data=f"add_link_{keyword}")],
+        [InlineKeyboardButton("✏️ লিঙ্ক বাটন এডিট করুন", callback_data=f"edit_links_{keyword}")],
+        [InlineKeyboardButton("🗑️ ফাইল যোগ করুন", callback_data=f"add_files_{keyword}")]
+    ])
+
+    await query.message.edit_text(
+        f"✏️ **ফিল্টার '{keyword}' এডিটের জন্য বিকল্পগুলি বেছে নিন।**",
+        reply_markup=keyboard,
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+@app.on_callback_query(filters.regex("^edit_links_"))
+async def edit_links_callback(client, callback_query):
+    query = callback_query
+    user_id = query.from_user.id
+    if user_id != ADMIN_ID:
+        return await query.answer("❌ আপনি এই কমান্ড ব্যবহার করার জন্য অনুমোদিত নন।", show_alert=True)
+    
+    keyword = query.data.split('_')[-1]
+    user_states[user_id] = {"command": "awaiting_edit_links", "keyword": keyword}
+    save_data()
+    await query.message.edit_text(
+        "✏️ **অনুগ্রহ করে নতুন লিঙ্কগুলো নিচের ফরম্যাটে দিন। এটি বিদ্যমান সব লিঙ্ক মুছে ফেলবে।**\n\n_উদাহরণ: King 01 - https://example.com/king_01, King 02 - https://example.com/king_02_\n\n**আপনি একাধিক লিঙ্ক কমা (,) দিয়ে আলাদা করতে পারেন।**"
+    )
+
+@app.on_callback_query(filters.regex("^confirm_delete_"))
+async def confirm_delete_callback(client, callback_query):
+    query = callback_query
+    user_id = query.from_user.id
+    
+    if user_id != ADMIN_ID:
+        return await query.answer("❌ আপনি এই কমান্ড ব্যবহার করার জন্য অনুমোদিত নন।", show_alert=True)
+    
+    keyword = query.data.split('_')[-1]
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ হ্যাঁ, নিশ্চিত", callback_data=f"final_delete_{keyword}")],
+        [InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_delete")]
+    ])
+    await query.message.edit_text(
+        f"⚠️ **আপনি কি নিশ্চিত যে আপনি '{keyword}' ফিল্টারটি মুছে ফেলতে চান?**\n\n_এই অ্যাকশনটি অপরিবর্তনীয়।_",
+        reply_markup=keyboard,
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+@app.on_callback_query(filters.regex("^final_delete_"))
+async def final_delete_callback(client, callback_query):
+    query = callback_query
+    user_id = query.from_user.id
+    
+    if user_id != ADMIN_ID:
+        return await query.answer("❌ আপনি এই কমান্ড ব্যবহার করার জন্য অনুমোদিত নন।", show_alert=True)
+    
+    keyword = query.data.split('_')[-1]
+    
+    if keyword in filters_dict:
+        del filters_dict[keyword]
+        save_data()
+        await query.message.edit_text(f"✅ **ফিল্টার '{keyword}' সফলভাবে মুছে ফেলা হয়েছে।**")
+    else:
+        await query.message.edit_text(f"❌ **ফিল্টার '{keyword}' খুঁজে পাওয়া যায়নি।**")
+
+
+@app.on_callback_query(filters.regex("^page_"))
+async def pagination_callback(client, callback_query):
+    query = callback_query
+    data = query.data.split('_')
+    page = int(data[1])
+    keyword = data[2]
+    for_edit = data[-1] == 'edit'
+    
+    keyboard = await create_filter_buttons_with_pagination(keyword, page, for_edit)
+    if keyboard:
+        try:
+            await query.message.edit_reply_markup(reply_markup=keyboard)
+        except MessageNotModified:
+            pass
+
+@app.on_callback_query(filters.regex("^send_file_"))
+async def send_file_callback(client, callback_query):
+    query = callback_query
+    file_id = int(query.data.split('_')[-1])
+    chat_id = query.message.chat.id
+    
+    await query.answer("Sending your file...")
+
+    try:
+        await app.copy_message(chat_id, CHANNEL_ID, file_id, protect_content=restrict_status)
+    except Exception as e:
+        await query.message.reply_text("❌ **Error sending file.**")
+        print(f"Error sending file {file_id}: {e}")
+
+@app.on_callback_query(filters.regex("check_join_status"))
+async def check_join_status_callback(client, callback_query):
+    user_id = callback_query.from_user.id
+    await callback_query.answer("Checking membership...", show_alert=True)
+    
+    if await is_user_member(client, user_id):
+        await callback_query.message.edit_text("✅ **You have successfully joined!**\n\n**Please go back to the chat and send your link again.**", parse_mode=ParseMode.MARKDOWN)
+    else:
+        buttons = [[InlineKeyboardButton(f"✅ Join TA_HD_How_To_Download", url=CHANNEL_LINK)]]
+        bot_username = (await client.get_me()).username
+        try_again_url = f"https://t.me/{bot_username}"
+        buttons.append([InlineKeyboardButton("🔄 Try Again", url=try_again_url)])
+        keyboard = InlineKeyboardMarkup(buttons)
+        await callback_query.message.edit_text("❌ **You are still not a member.**", reply_markup=keyboard)
+
 
 @app.on_message(filters.command("broadcast") & filters.private & filters.user(ADMIN_ID))
 async def broadcast_cmd(client, message):
@@ -399,22 +764,6 @@ async def broadcast_cmd(client, message):
                 pass
         await asyncio.sleep(0.1)
     await progress_msg.edit_text(f"✅ **Broadcast complete!**\nSent to {sent_count} users.\nFailed to send to {failed_count} users.")
-
-@app.on_message(filters.command("delete") & filters.private & filters.user(ADMIN_ID))
-async def delete_cmd(client, message):
-    global last_filter
-    args = message.text.split(maxsplit=1)
-    if len(args) < 2:
-        return await message.reply_text("📌 **Please provide a keyword to delete.**")
-    keyword = args[1].lower()
-    if keyword in filters_dict:
-        del filters_dict[keyword]
-        if last_filter == keyword:
-            last_filter = None
-        save_data()
-        await message.reply_text(f"🗑️ **Filter '{keyword}' and its associated files have been deleted.**")
-    else:
-        await message.reply_text(f"❌ **Filter '{keyword}' not found.**")
 
 @app.on_message(filters.command("restrict") & filters.private & filters.user(ADMIN_ID))
 async def restrict_cmd(client, message):
@@ -470,24 +819,6 @@ async def auto_delete_cmd(client, message):
         await message.reply_text(f"🗑️ **অটো-ডিলিট বন্ধ করা হয়েছে।**")
     else:
         await message.reply_text(f"✅ **অটো-ডিলিট {time_str} তে সেট করা হয়েছে।**")
-
-@app.on_callback_query(filters.regex("check_join_status"))
-async def check_join_status_callback(client, callback_query):
-    user_id = callback_query.from_user.id
-    await callback_query.answer("Checking membership...", show_alert=True)
-    
-    if await is_user_member(client, user_id):
-        await callback_query.message.edit_text("✅ **You have successfully joined!**\n\n**Please go back to the chat and send your link again.**", parse_mode=ParseMode.MARKDOWN)
-    else:
-        buttons = [[InlineKeyboardButton(f"✅ Join TA_HD_How_To_Download", url=CHANNEL_LINK)]]
-        
-        # The key change here is using a URL button to automatically re-open the bot.
-        bot_username = (await client.get_me()).username
-        try_again_url = f"https://t.me/{bot_username}" # Opens the bot without any keyword
-
-        buttons.append([InlineKeyboardButton("🔄 Try Again", url=try_again_url)])
-        keyboard = InlineKeyboardMarkup(buttons)
-        await callback_query.message.edit_text("❌ **You are still not a member.**", reply_markup=keyboard)
 
 @app.on_message(filters.command("channel_id") & filters.private & filters.user(ADMIN_ID))
 async def channel_id_cmd(client, message):
