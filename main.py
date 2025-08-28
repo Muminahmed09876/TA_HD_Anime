@@ -27,7 +27,7 @@ LOG_CHANNEL_ID = -1002623880704
 
 # --- MongoDB Configuration ---
 MONGO_URI = os.environ.get("MONGO_URI")
-DB_NAME = "TA_HD_File_Share"
+DB_NAME = "TA_HD_Anime"
 COLLECTION_NAME = "bot_data"
 
 # --- In-memory data structures ---
