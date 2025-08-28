@@ -42,9 +42,9 @@ user_states = {}
 
 # --- Join Channels Configuration ---
 # Your original code used these variables. They are included here to avoid changes.
-CHANNEL_ID_2 = -1002628995632
-CHANNEL_LINK = "https://t.me/TA_HD_How_To_Download"
-join_channels = [{"id": CHANNEL_ID_2, "name": "Backup Channel", "link": CHANNEL_LINK}]
+CHANNEL_ID_2 = -1003049936443
+CHANNEL_LINK = "https://t.me/TA_HD_Anime"
+join_channels = [{"id": CHANNEL_ID_2, "name": "TA HD Anime Hindi Official Dubbed", "link": CHANNEL_LINK}]
 
 # --- Database Client and Collection ---
 mongo_client = None
