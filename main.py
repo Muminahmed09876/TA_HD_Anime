@@ -22,7 +22,7 @@ ADMIN_ID = int(os.environ.get("ADMIN_ID"))
 RENDER_EXTERNAL_HOSTNAME = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
 PORT = int(os.environ.get("PORT"))
 
-CHANNEL_ID = -1002619816346
+CHANNEL_ID = -1003094281207
 LOG_CHANNEL_ID = -1002623880704
 
 # --- MongoDB Configuration ---
