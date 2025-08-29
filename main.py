@@ -68,7 +68,7 @@ app_flask = Flask(__name__)
 @app_flask.route('/')
 def home():
     html_content = """
-    <!DOCTYPE html>
+    <!DOCTYPE:html>
     <html lang="en">
     <head>
         <meta charset="UTF-8">
@@ -237,22 +237,40 @@ def parse_inline_buttons_from_text(text):
             
     return button_data
 
-# এডিট করার জন্য বোতামের কীবোর্ড তৈরি করা
-def create_edit_buttons_keyboard(keyword, button_list):
+# এডিট করার জন্য পেজিনেশন সহ বোতামের কীবোর্ড তৈরি করা (নতুন)
+def create_paged_edit_buttons(keyword, button_list, page, page_size=10):
+    start_index = (page - 1) * page_size
+    end_index = start_index + page_size
+    current_page_buttons = button_list[start_index:end_index]
+    
     keyboard = []
     
-    for i, button_data in enumerate(button_list, start=1):
+    for i, button_data in enumerate(current_page_buttons, start=start_index + 1):
         keyboard.append([InlineKeyboardButton(f"{i}. {button_data['text']}", callback_data="ignore")])
+
+    total_pages = (len(button_list) + page_size - 1) // page_size
+    nav_row = []
+    
+    if page > 1:
+        nav_row.append(InlineKeyboardButton("⏪ Previous", callback_data=f"editpage_{keyword}_{page - 1}"))
+    
+    nav_row.append(InlineKeyboardButton(f"{page}/{total_pages}", callback_data="ignore"))
+    
+    if page < total_pages:
+        nav_row.append(InlineKeyboardButton("Next ⏩", callback_data=f"editpage_{keyword}_{page + 1}"))
+    
+    if len(nav_row) > 1:
+        keyboard.append(nav_row)
     
     edit_row = [
         InlineKeyboardButton("➕ Add", callback_data=f"edit_add_{keyword}"),
         InlineKeyboardButton("🗑️ Delete", callback_data=f"edit_delete_{keyword}"),
         InlineKeyboardButton("↔️ Set", callback_data=f"edit_set_{keyword}")
     ]
-    
     keyboard.append(edit_row)
     
     return InlineKeyboardMarkup(keyboard)
+
 
 # --- Message Handlers (Pyrogram) ---
 # /start কমান্ড হ্যান্ডলার (পরিবর্তিত)
@@ -379,13 +397,28 @@ async def button_cmd(client, message):
     save_data()
     await message.reply_text("➡️ **ফিল্টারের জন্য একটি নাম দিন:**", reply_markup=ForceReply(True))
 
-# /edit_button কমান্ড হ্যান্ডলার
+# /edit_button কমান্ড হ্যান্ডলার (পরিবর্তিত)
 @app.on_message(filters.command("edit_button") & filters.private & filters.user(ADMIN_ID))
 async def edit_button_cmd(client, message):
     user_id = message.from_user.id
-    user_states[user_id] = {"command": "edit_button_awaiting_name"}
+    args = message.text.split(maxsplit=1)
+
+    if len(args) < 2:
+        user_states[user_id] = {"command": "edit_button_awaiting_name"}
+        save_data()
+        await message.reply_text("➡️ **কোন বোতাম ফিল্টারটি এডিট করতে চান তার নাম দিন:**", reply_markup=ForceReply(True))
+        return
+
+    keyword = args[1].lower().strip()
+    if keyword not in filters_dict or filters_dict[keyword].get('type') != 'button_filter':
+        return await message.reply_text(f"⚠️ **'{keyword}' নামে কোনো বোতাম ফিল্টার পাওয়া যায়নি।**")
+
+    user_states[user_id] = {"command": "editing_buttons", "keyword": keyword}
     save_data()
-    await message.reply_text("➡️ **কোন বোতাম ফিল্টারটি এডিট করতে চান তার নাম দিন:**", reply_markup=ForceReply(True))
+    
+    button_list = filters_dict[keyword]['button_data']
+    reply_text = f"⚙️ **'{keyword}' ফিল্টার এডিট করছেন।**"
+    await message.reply_text(reply_text, reply_markup=create_paged_edit_buttons(keyword, button_list, 1), parse_mode=ParseMode.MARKDOWN)
 
 # রিপ্লাই মেসেজ হ্যান্ডলার (নতুন লজিক সহ)
 @app.on_message(filters.private & filters.user(ADMIN_ID) & filters.reply)
@@ -445,11 +478,8 @@ async def reply_handler(client, message):
         save_data()
         
         button_list = filters_dict[keyword]['button_data']
-        reply_text = f"⚙️ **'{keyword}' ফিল্টার এডিট করছেন।**\n\n**বর্তমান বোতামগুলো:**\n\n"
-        for i, button_data in enumerate(button_list, 1):
-            reply_text += f"{i}. **{button_data['text']}** - `{button_data['link']}`\n"
-        
-        await message.reply_text(reply_text, reply_markup=create_edit_buttons_keyboard(keyword, button_list), parse_mode=ParseMode.MARKDOWN)
+        reply_text = f"⚙️ **'{keyword}' ফিল্টার এডিট করছেন।**"
+        await message.reply_text(reply_text, reply_markup=create_paged_edit_buttons(keyword, button_list, 1), parse_mode=ParseMode.MARKDOWN)
 
     elif state["command"] == "edit_add_awaiting_input":
         keyword = state['keyword']
@@ -568,7 +598,6 @@ async def channel_delete_handler(client, messages):
                 await app.send_message(LOG_CHANNEL_ID, "📝 **দ্রষ্টব্য:** শেষ সক্রিয় ফিল্টারটি মুছে ফেলা হয়েছে।")
                 save_data()
 
-# --- 📢 Broadcast Functionality Code ---
 # /broadcast কমান্ড হ্যান্ডলার
 @app.on_message(filters.command("broadcast") & filters.private & filters.user(ADMIN_ID))
 async def broadcast_cmd(client, message):
@@ -743,6 +772,25 @@ async def edit_button_callback(client, callback_query):
         await callback_query.message.reply_text("➡️ **যে দুটি বোতামের স্থান পরিবর্তন করতে চান তাদের নম্বর দিন (যেমন: 2-3):**", reply_markup=ForceReply(True))
 
     await callback_query.answer()
+
+# এডিট বোতামের পেজিনেশন কলব্যাক হ্যান্ডলার (নতুন)
+@app.on_callback_query(filters.regex(r"editpage_([a-zA-Z0-9_]+)_(\d+)"))
+async def pagination_edit_callback(client, callback_query):
+    query = callback_query
+    await query.answer()
+    
+    parts = query.data.split('_')
+    keyword = parts[1]
+    page = int(parts[2])
+
+    if keyword in filters_dict and filters_dict[keyword].get('type') == 'button_filter':
+        filter_data = filters_dict[keyword]
+        reply_text = f"⚙️ **'{keyword}' ফিল্টার এডিট করছেন।**"
+        reply_markup = create_paged_edit_buttons(keyword, filter_data['button_data'], page)
+        try:
+            await query.edit_message_text(reply_text, reply_markup=reply_markup)
+        except MessageNotModified:
+            pass
 
 # /channel_id কমান্ড হ্যান্ডলার
 @app.on_message(filters.command("channel_id") & filters.private & filters.user(ADMIN_ID))
