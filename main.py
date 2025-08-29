@@ -386,8 +386,8 @@ async def edit_button_cmd(client, message):
     user_states[user_id] = {"command": "edit_button_awaiting_name"}
     save_data()
     await message.reply_text("➡️ **কোন বোতাম ফিল্টারটি এডিট করতে চান তার নাম দিন:**", reply_markup=ForceReply(True))
-    
-# রিপ্লাই মেসেজ হ্যান্ডলার (শুধুমাত্র /button এবং /edit_button এর জন্য)
+
+# রিপ্লাই মেসেজ হ্যান্ডলার (নতুন লজিক সহ)
 @app.on_message(filters.private & filters.user(ADMIN_ID) & filters.reply)
 async def reply_handler(client, message):
     user_id = message.from_user.id
@@ -568,7 +568,8 @@ async def channel_delete_handler(client, messages):
                 await app.send_message(LOG_CHANNEL_ID, "📝 **দ্রষ্টব্য:** শেষ সক্রিয় ফিল্টারটি মুছে ফেলা হয়েছে।")
                 save_data()
 
-# /broadcast কমান্ড হ্যান্ডলার (স্বতন্ত্র)
+# --- 📢 Broadcast Functionality Code ---
+# /broadcast কমান্ড হ্যান্ডলার
 @app.on_message(filters.command("broadcast") & filters.private & filters.user(ADMIN_ID))
 async def broadcast_cmd(client, message):
     if not message.reply_to_message:
@@ -692,7 +693,6 @@ async def check_join_status_callback(client, callback_query):
         
         bot_username = (await client.get_me()).username
         try_again_url = f"https://t.me/{bot_username}"
-
         buttons.append([InlineKeyboardButton("🔄 Try Again", url=try_again_url)])
         keyboard = InlineKeyboardMarkup(buttons)
         await callback_query.message.edit_text("❌ **You are still not a member.**", reply_markup=keyboard)
