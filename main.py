@@ -47,11 +47,11 @@ CHANNEL_LINK = "https://t.me/TA_HD_Anime"
 
 # New channel added
 CHANNEL_ID_3 = -1003097080109
-CHANNEL_LINK_3 = "https://t.me/TA_Videos"
+CHANNEL_LINK_3 = "https://t.me/TA_XVideos"
 
 join_channels = [
     {"id": CHANNEL_ID_2, "name": "TA HD Anime Hindi Official Dubbed", "link": CHANNEL_LINK},
-    {"id": CHANNEL_ID_3, "name": "TA Videos", "link": CHANNEL_LINK_3}
+    {"id": CHANNEL_ID_3, "name": "TA XVideos", "link": CHANNEL_LINK_3}
 ]
 
 # --- Pagination Configuration ---
