@@ -42,7 +42,6 @@ last_filter = None
 banned_users = set()
 restrict_status = False
 autodelete_time = 0
-deep_link_keyword = None
 user_states = {}
 
 # --- Join Channels Configuration ---
@@ -197,8 +196,8 @@ async def delete_messages_later(chat_id, message_ids, delay_seconds):
     except Exception as e:
         print(f"Error deleting messages {message_ids} in chat {chat_id}: {e}")
 
-# পেজিনেশন সহ বোতাম তৈরি করা
-def create_paged_buttons(button_list, page, page_size=10):
+# পেজিনেশন সহ বোতাম তৈরি করা (পরিবর্তিত)
+def create_paged_buttons(keyword, button_list, page, page_size=10):
     start_index = (page - 1) * page_size
     end_index = start_index + page_size
     current_page_buttons = button_list[start_index:end_index]
@@ -210,11 +209,14 @@ def create_paged_buttons(button_list, page, page_size=10):
 
     total_pages = (len(button_list) + page_size - 1) // page_size
     nav_row = []
+    
     if page > 1:
-        nav_row.append(InlineKeyboardButton("⏪ Previous", callback_data=f"page_{page - 1}"))
+        nav_row.append(InlineKeyboardButton("⏪ Previous", callback_data=f"page_{keyword}_{page - 1}"))
+    
     nav_row.append(InlineKeyboardButton(f"{page}/{total_pages}", callback_data="ignore"))
+    
     if page < total_pages:
-        nav_row.append(InlineKeyboardButton("Next ⏩", callback_data=f"page_{page + 1}"))
+        nav_row.append(InlineKeyboardButton("Next ⏩", callback_data=f"page_{keyword}_{page + 1}"))
     
     if len(nav_row) > 1:
         keyboard.append(nav_row)
@@ -253,10 +255,9 @@ def create_edit_buttons_keyboard(keyword, button_list):
     return InlineKeyboardMarkup(keyboard)
 
 # --- Message Handlers (Pyrogram) ---
-# /start কমান্ড হ্যান্ডলার
+# /start কমান্ড হ্যান্ডলার (পরিবর্তিত)
 @app.on_message(filters.command("start") & filters.private)
 async def start_cmd(client, message):
-    global deep_link_keyword, autodelete_time
     user_id = message.from_user.id
     user_list.add(user_id)
     save_data()
@@ -278,8 +279,9 @@ async def start_cmd(client, message):
         print(f"Failed to send log message: {e}")
     
     args = message.text.split(maxsplit=1)
-    if len(args) > 1:
-        deep_link_keyword = args[1].lower()
+    deep_link_keyword = args[1].lower() if len(args) > 1 else None
+    
+    if deep_link_keyword:
         log_link_message = (
             f"🔗 **New Deep Link Open!**\n\n"
             f"🆔 User ID: `{user.id}`\n"
@@ -312,48 +314,44 @@ async def start_cmd(client, message):
             parse_mode=ParseMode.MARKDOWN
         )
 
-    if deep_link_keyword:
-        keyword = deep_link_keyword
-        if keyword in filters_dict:
-            filter_data = filters_dict[keyword]
-            
-            if 'button_data' in filter_data and filter_data['button_data']:
-                reply_text = filter_data.get('message_text', "Select an option:")
-                reply_markup = create_paged_buttons(filter_data['button_data'], 1)
-                await message.reply_text(reply_text, reply_markup=reply_markup)
-            
-            elif 'file_ids' in filter_data and filter_data['file_ids']:
-                if autodelete_time > 0:
-                    minutes = autodelete_time // 60
-                    hours = autodelete_time // 3600
-                    if hours > 0:
-                        delete_time_str = f"{hours} hour{'s' if hours > 1 else ''}"
-                    else:
-                        delete_time_str = f"{minutes} minute{'s' if minutes > 1 else ''}"
-                    await message.reply_text(f"✅ **Files found!** Sending now. Please note, these files will be automatically deleted in **{delete_time_str}**.", parse_mode=ParseMode.MARKDOWN)
+    if deep_link_keyword and deep_link_keyword in filters_dict:
+        filter_data = filters_dict[deep_link_keyword]
+        
+        if 'button_data' in filter_data and filter_data['button_data']:
+            reply_text = filter_data.get('message_text', "Select an option:")
+            reply_markup = create_paged_buttons(deep_link_keyword, filter_data['button_data'], 1)
+            await message.reply_text(reply_text, reply_markup=reply_markup)
+        
+        elif 'file_ids' in filter_data and filter_data['file_ids']:
+            if autodelete_time > 0:
+                minutes = autodelete_time // 60
+                hours = autodelete_time // 3600
+                if hours > 0:
+                    delete_time_str = f"{hours} hour{'s' if hours > 1 else ''}"
                 else:
-                    await message.reply_text(f"✅ **Files found!** Sending now...")
-                
-                sent_message_ids = []
-                for file_id in filter_data['file_ids']:
-                    try:
-                        sent_msg = await app.copy_message(message.chat.id, CHANNEL_ID, file_id, protect_content=restrict_status)
-                        sent_message_ids.append(sent_msg.id)
-                        await asyncio.sleep(0.5)
-                    except FloodWait as e:
-                        await asyncio.sleep(e.value)
-                        sent_msg = await app.copy_message(message.chat.id, CHANNEL_ID, file_id, protect_content=restrict_status)
-                        sent_message_ids.append(sent_msg.id)
-                    except Exception as e:
-                        print(f"Error copying message {file_id}: {e}")
-                await message.reply_text("🎉 **All files sent!**")
-                if autodelete_time > 0:
-                    asyncio.create_task(delete_messages_later(message.chat.id, sent_message_ids, autodelete_time))
+                    delete_time_str = f"{minutes} minute{'s' if minutes > 1 else ''}"
+                await message.reply_text(f"✅ **Files found!** Sending now. Please note, these files will be automatically deleted in **{delete_time_str}**.", parse_mode=ParseMode.MARKDOWN)
             else:
-                await message.reply_text("❌ **No files found for this keyword.**")
+                await message.reply_text(f"✅ **Files found!** Sending now...")
+            
+            sent_message_ids = []
+            for file_id in filter_data['file_ids']:
+                try:
+                    sent_msg = await app.copy_message(message.chat.id, CHANNEL_ID, file_id, protect_content=restrict_status)
+                    sent_message_ids.append(sent_msg.id)
+                    await asyncio.sleep(0.5)
+                except FloodWait as e:
+                    await asyncio.sleep(e.value)
+                    sent_msg = await app.copy_message(message.chat.id, CHANNEL_ID, file_id, protect_content=restrict_status)
+                    sent_message_ids.append(sent_msg.id)
+                except Exception as e:
+                    print(f"Error copying message {file_id}: {e}")
+            await message.reply_text("🎉 **All files sent!**")
+            if autodelete_time > 0:
+                asyncio.create_task(delete_messages_later(message.chat.id, sent_message_ids, autodelete_time))
         else:
-            await message.reply_text("❌ **No files found for this keyword.**")
-        deep_link_keyword = None
+            await message.reply_text("❌ **No files or buttons found for this keyword.**")
+        
         return
     
     if user_id == ADMIN_ID:
@@ -698,20 +696,21 @@ async def check_join_status_callback(client, callback_query):
         keyboard = InlineKeyboardMarkup(buttons)
         await callback_query.message.edit_text("❌ **You are still not a member.**", reply_markup=keyboard)
 
-# পেজিনেশন কলব্যাক হ্যান্ডলার
-@app.on_callback_query(filters.regex(r"page_(\d+)"))
+# পেজিনেশন কলব্যাক হ্যান্ডলার (পরিবর্তিত)
+@app.on_callback_query(filters.regex(r"page_([a-zA-Z0-9_]+)_(\d+)"))
 async def pagination_callback(client, callback_query):
     query = callback_query
     await query.answer()
     
-    page = int(query.data.split('_')[1])
-    
-    keyword = deep_link_keyword
+    parts = query.data.split('_')
+    keyword = parts[1]
+    page = int(parts[2])
+
     if keyword in filters_dict:
         filter_data = filters_dict[keyword]
         if 'button_data' in filter_data and filter_data['button_data']:
             reply_text = filter_data.get('message_text', "Select an option:")
-            reply_markup = create_paged_buttons(filter_data['button_data'], page)
+            reply_markup = create_paged_buttons(keyword, filter_data['button_data'], page)
             try:
                 await query.edit_message_text(reply_text, reply_markup=reply_markup)
             except MessageNotModified:
@@ -764,6 +763,7 @@ async def forwarded_message_handler(client, message):
             await message.reply_text("❌ **এটি একটি চ্যানেল মেসেজ নয়।**")
         del user_states[user_id]
         save_data()
+
 
 # --- Run Services ---
 def run_flask_and_pyrogram():
