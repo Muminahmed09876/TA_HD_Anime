@@ -348,7 +348,7 @@ async def start_cmd(client, message):
             reply_markup = create_paged_buttons(deep_link_keyword, filter_data['button_data'], 1)
             await message.reply_text(reply_text, reply_markup=reply_markup)
         
-        elif 'file_data' in filter_data and filter_data['file_data']:
+        elif 'file_ids' in filter_data and filter_data['file_ids']:
             if autodelete_time > 0:
                 minutes = autodelete_time // 60
                 hours = autodelete_time // 3600
@@ -361,13 +361,7 @@ async def start_cmd(client, message):
                 await message.reply_text(f"✅ **Files found!** Sending now...")
             
             sent_message_ids = []
-            for file_entry in filter_data['file_data']:
-                file_id = file_entry['file_id']
-                file_caption = file_entry.get('message_caption')
-                
-                if file_caption:
-                    await message.reply_text(file_caption)
-                
+            for file_id in filter_data['file_ids']:
                 try:
                     sent_msg = await app.copy_message(message.chat.id, CHANNEL_ID, file_id, protect_content=restrict_status)
                     sent_message_ids.append(sent_msg.id)
@@ -463,7 +457,7 @@ async def message_handler(client, message):
         filters_dict[keyword] = {
             'message_text': "Select a button from the list below:",
             'button_data': button_data,
-            'file_data': [],
+            'file_ids': [],
             'type': 'button_filter'
         }
 
@@ -590,7 +584,7 @@ async def reply_handler(client, message):
 async def channel_content_handler(client, message):
     global last_filter
     
-    if message.text and len(message.text.split()) == 1 and message.text.startswith('#'):
+    if message.text and len(message.text.split()) == 1:
         keyword = message.text.lower().replace('#', '')
         if not keyword:
             return
@@ -601,7 +595,7 @@ async def channel_content_handler(client, message):
             
         last_filter = keyword
         if keyword not in filters_dict:
-            filters_dict[keyword] = {'message_text': None, 'button_data': [], 'file_data': [], 'type': 'file_filter'}
+            filters_dict[keyword] = {'message_text': None, 'button_data': [], 'file_ids': []}
             await app.send_message(
                 LOG_CHANNEL_ID,
                 f"✅ **নতুন ফাইল ফিল্টার তৈরি হয়েছে!**\n🔗 শেয়ার লিংক: `https://t.me/{(await app.get_me()).username}?start={keyword}`",
@@ -612,27 +606,14 @@ async def channel_content_handler(client, message):
         save_data()
         return
 
-    if last_filter:
-        # Check if the message has media or text (for multi-word messages)
-        if message.media or (message.text and len(message.text.split()) > 1):
-            if last_filter in filters_dict and filters_dict[last_filter].get('type') == 'file_filter':
-                file_entry = {
-                    'file_id': message.id,
-                    'message_caption': message.caption.html if message.caption else (message.text.html if message.text else None)
-                }
-                if 'file_data' not in filters_dict[last_filter]:
-                    filters_dict[last_filter]['file_data'] = []
-                filters_dict[last_filter]['file_data'].append(file_entry)
-                save_data()
-            else:
-                await app.send_message(LOG_CHANNEL_ID, "⚠️ **কোনো সক্রিয় ফাইল ফিল্টার পাওয়া যায়নি বা এটি একটি বোতাম ফিল্টার।**")
-        
-        elif not message.media and len(message.text.split()) == 1 and not message.text.startswith('#'):
-             # This is a single word message, but not a new filter keyword, so we reset the last_filter
-            last_filter = None
-            await app.send_message(LOG_CHANNEL_ID, "📝 **দ্রষ্টব্য:** শেষ সক্রিয় ফিল্টারটি রিসেট করা হয়েছে।")
+    if message.media and last_filter:
+        if last_filter in filters_dict and filters_dict[last_filter].get('type') != 'button_filter':
+            if 'file_ids' not in filters_dict[last_filter]:
+                filters_dict[last_filter]['file_ids'] = []
+            filters_dict[last_filter]['file_ids'].append(message.id)
             save_data()
-
+        else:
+            await app.send_message(LOG_CHANNEL_ID, "⚠️ **কোনো সক্রিয় ফাইল ফিল্টার পাওয়া যায়নি বা এটি একটি বোতাম ফিল্টার।**")
 
 # চ্যানেল থেকে মেসেজ ডিলিট করার হ্যান্ডলার
 @app.on_deleted_messages(filters.channel & filters.chat(CHANNEL_ID))
