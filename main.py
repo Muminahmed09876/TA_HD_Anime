@@ -6,7 +6,7 @@ import re
 from pyrogram import Client, filters
 from pyrogram.enums import ParseMode
 from pyrogram.errors import MessageNotModified, FloodWait, UserNotParticipant
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ForceReply
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pymongo import MongoClient
 from dotenv import load_dotenv
 from flask import Flask, render_template_string
@@ -205,7 +205,10 @@ def create_paged_buttons(keyword, button_list, page, page_size=10):
     keyboard = []
     
     for button_data in current_page_buttons:
-        keyboard.append([InlineKeyboardButton(button_data['text'], url=button_data['link'])])
+        if 'link' in button_data and button_data['link']:
+            keyboard.append([InlineKeyboardButton(button_data['text'], url=button_data['link'])])
+        else:
+            keyboard.append([InlineKeyboardButton(button_data['text'], callback_data="ignore")])
 
     total_pages = (len(button_list) + page_size - 1) // page_size
     nav_row = []
@@ -223,21 +226,27 @@ def create_paged_buttons(keyword, button_list, page, page_size=10):
 
     return InlineKeyboardMarkup(keyboard)
 
-# টেক্সট থেকে ইনলাইন বোতামের ডেটা পার্স করা
+# টেক্সট থেকে ইনলাইন বোতামের ডেটা পার্স করা (নতুন লজিক সহ)
 def parse_inline_buttons_from_text(text):
     button_data = []
     button_pairs = text.split(',')
     
     for pair in button_pairs:
-        parts = pair.split(' = ', 1)
-        if len(parts) == 2:
-            button_text = parts[0].strip()
-            button_link = parts[1].strip()
-            button_data.append({'text': button_text, 'link': button_link})
+        pair = pair.strip()
+        # Check for the new [Button Name] format
+        if pair.startswith('[') and pair.endswith(']'):
+            button_text = pair[1:-1].strip()
+            button_data.append({'text': f"🎬 {button_text} 🎬", 'link': None})
+        else:
+            parts = pair.split(' = ', 1)
+            if len(parts) == 2:
+                button_text = parts[0].strip()
+                button_link = parts[1].strip()
+                button_data.append({'text': button_text, 'link': button_link})
             
     return button_data
 
-# এডিট করার জন্য পেজিনেশন সহ বোতামের কীবোর্ড তৈরি করা (নতুন)
+# এডিট করার জন্য পেজিনেশন সহ বোতামের কীবোর্ড তৈরি করা (পরিবর্তিত)
 def create_paged_edit_buttons(keyword, button_list, page, page_size=10):
     start_index = (page - 1) * page_size
     end_index = start_index + page_size
@@ -263,14 +272,13 @@ def create_paged_edit_buttons(keyword, button_list, page, page_size=10):
         keyboard.append(nav_row)
     
     edit_row = [
-        InlineKeyboardButton("➕ Add", callback_data=f"edit_add_{keyword}"),
-        InlineKeyboardButton("🗑️ Delete", callback_data=f"edit_delete_{keyword}"),
-        InlineKeyboardButton("↔️ Set", callback_data=f"edit_set_{keyword}")
+        InlineKeyboardButton("➕ Add", callback_data=f"edit_add_{keyword}_{page}"),
+        InlineKeyboardButton("🗑️ Delete", callback_data=f"edit_delete_{keyword}_{page}"),
+        InlineKeyboardButton("↔️ Set", callback_data=f"edit_set_{keyword}_{page}")
     ]
     keyboard.append(edit_row)
     
     return InlineKeyboardMarkup(keyboard)
-
 
 # --- Message Handlers (Pyrogram) ---
 # /start কমান্ড হ্যান্ডলার (পরিবর্তিত)
@@ -340,7 +348,7 @@ async def start_cmd(client, message):
             reply_markup = create_paged_buttons(deep_link_keyword, filter_data['button_data'], 1)
             await message.reply_text(reply_text, reply_markup=reply_markup)
         
-        elif 'file_ids' in filter_data and filter_data['file_ids']:
+        elif 'file_data' in filter_data and filter_data['file_data']:
             if autodelete_time > 0:
                 minutes = autodelete_time // 60
                 hours = autodelete_time // 3600
@@ -353,7 +361,13 @@ async def start_cmd(client, message):
                 await message.reply_text(f"✅ **Files found!** Sending now...")
             
             sent_message_ids = []
-            for file_id in filter_data['file_ids']:
+            for file_entry in filter_data['file_data']:
+                file_id = file_entry['file_id']
+                file_caption = file_entry.get('message_caption')
+                
+                if file_caption:
+                    await message.reply_text(file_caption)
+                
                 try:
                     sent_msg = await app.copy_message(message.chat.id, CHANNEL_ID, file_id, protect_content=restrict_status)
                     sent_message_ids.append(sent_msg.id)
@@ -395,7 +409,7 @@ async def button_cmd(client, message):
     user_id = message.from_user.id
     user_states[user_id] = {"command": "button_awaiting_name"}
     save_data()
-    await message.reply_text("➡️ **ফিল্টারের জন্য একটি নাম দিন:**", reply_markup=ForceReply(True))
+    await message.reply_text("➡️ **ফিল্টারের জন্য একটি নাম দিন:**")
 
 # /edit_button কমান্ড হ্যান্ডলার (পরিবর্তিত)
 @app.on_message(filters.command("edit_button") & filters.private & filters.user(ADMIN_ID))
@@ -406,23 +420,23 @@ async def edit_button_cmd(client, message):
     if len(args) < 2:
         user_states[user_id] = {"command": "edit_button_awaiting_name"}
         save_data()
-        await message.reply_text("➡️ **কোন বোতাম ফিল্টারটি এডিট করতে চান তার নাম দিন:**", reply_markup=ForceReply(True))
+        await message.reply_text("➡️ **কোন বোতাম ফিল্টারটি এডিট করতে চান তার নাম দিন:**")
         return
 
     keyword = args[1].lower().strip()
     if keyword not in filters_dict or filters_dict[keyword].get('type') != 'button_filter':
         return await message.reply_text(f"⚠️ **'{keyword}' নামে কোনো বোতাম ফিল্টার পাওয়া যায়নি।**")
 
-    user_states[user_id] = {"command": "editing_buttons", "keyword": keyword}
+    user_states[user_id] = {"command": "editing_buttons", "keyword": keyword, "page": 1}
     save_data()
     
     button_list = filters_dict[keyword]['button_data']
     reply_text = f"⚙️ **'{keyword}' ফিল্টার এডিট করছেন।**"
     await message.reply_text(reply_text, reply_markup=create_paged_edit_buttons(keyword, button_list, 1), parse_mode=ParseMode.MARKDOWN)
 
-# রিপ্লাই মেসেজ হ্যান্ডলার (নতুন লজিক সহ)
-@app.on_message(filters.private & filters.user(ADMIN_ID) & filters.reply)
-async def reply_handler(client, message):
+# সাধারণ মেসেজ হ্যান্ডলার (নতুন লজিক সহ)
+@app.on_message(filters.private & filters.user(ADMIN_ID) & filters.text & ~filters.command(["start", "button", "edit_button", "broadcast", "delete", "restrict", "ban", "unban", "auto_delete", "channel_id"]))
+async def message_handler(client, message):
     user_id = message.from_user.id
     state = user_states.get(user_id)
     
@@ -432,11 +446,11 @@ async def reply_handler(client, message):
     if state["command"] == "button_awaiting_name":
         keyword = message.text.lower().strip()
         if keyword in filters_dict:
-            return await message.reply_text("⚠️ **এই নামে একটি ফিল্টার ইতিমধ্যে আছে।** অনুগ্রহ করে অন্য একটি নাম দিন:", reply_markup=ForceReply(True))
+            return await message.reply_text("⚠️ **এই নামে একটি ফিল্টার ইতিমধ্যে আছে।** অনুগ্রহ করে অন্য একটি নাম দিন:")
 
         user_states[user_id] = {"command": "button_awaiting_buttons", "keyword": keyword}
         save_data()
-        await message.reply_text("➡️ **বোতামের কোড দিন (যেমন: Button 01 - link1, Button 02 - link2):**", reply_markup=ForceReply(True))
+        await message.reply_text("➡️ **বোতামের কোড দিন (যেমন: Button 01 = link1, Button 02 = link2, [Button Name]):**")
 
     elif state["command"] == "button_awaiting_buttons":
         keyword = state["keyword"]
@@ -444,12 +458,12 @@ async def reply_handler(client, message):
         button_data = parse_inline_buttons_from_text(button_text)
         
         if not button_data:
-            return await message.reply_text("❌ **ভুল বোতাম ফরম্যাট।** অনুগ্রহ করে আবার চেষ্টা করুন:", reply_markup=ForceReply(True))
+            return await message.reply_text("❌ **ভুল বোতাম ফরম্যাট।** অনুগ্রহ করে আবার চেষ্টা করুন:")
 
         filters_dict[keyword] = {
             'message_text': "Select a button from the list below:",
             'button_data': button_data,
-            'file_ids': [],
+            'file_data': [],
             'type': 'button_filter'
         }
 
@@ -472,9 +486,9 @@ async def reply_handler(client, message):
     elif state["command"] == "edit_button_awaiting_name":
         keyword = message.text.lower().strip()
         if keyword not in filters_dict or filters_dict[keyword].get('type') != 'button_filter':
-            return await message.reply_text("⚠️ **এই নামে কোনো বোতাম ফিল্টার পাওয়া যায়নি।** অনুগ্রহ করে সঠিক নাম দিন:", reply_markup=ForceReply(True))
+            return await message.reply_text("⚠️ **এই নামে কোনো বোতাম ফিল্টার পাওয়া যায়নি।** অনুগ্রহ করে সঠিক নাম দিন:")
         
-        user_states[user_id] = {"command": "editing_buttons", "keyword": keyword}
+        user_states[user_id] = {"command": "editing_buttons", "keyword": keyword, "page": 1}
         save_data()
         
         button_list = filters_dict[keyword]['button_data']
@@ -484,32 +498,44 @@ async def reply_handler(client, message):
     elif state["command"] == "edit_add_awaiting_input":
         keyword = state['keyword']
         button_text = message.text.strip()
-        new_buttons = parse_inline_buttons_from_text(f"dummy - link, {button_text}")
-        new_buttons.pop(0) # Remove the dummy button
+        new_buttons = parse_inline_buttons_from_text(button_text)
 
         if not new_buttons:
-            return await message.reply_text("❌ **ভুল বোতাম ফরম্যাট।** অনুগ্রহ করে আবার চেষ্টা করুন।", reply_markup=ForceReply(True))
+            return await message.reply_text("❌ **ভুল বোতাম ফরম্যাট।** অনুগ্রহ করে আবার চেষ্টা করুন।")
 
         filters_dict[keyword]['button_data'].extend(new_buttons)
         save_data()
         await message.reply_text("✅ **নতুন বোতাম সফলভাবে যুক্ত হয়েছে!**")
         
+        page = state.get("page", 1)
         del user_states[user_id]
         await edit_button_cmd(client, message)
 
     elif state["command"] == "edit_delete_awaiting_number":
         keyword = state['keyword']
-        numbers_str = message.text.strip().split(',')
-        numbers_to_delete = [int(n.strip()) for n in numbers_str if n.strip().isdigit()]
+        numbers_str = message.text.strip().replace(" ", "").split(',')
+        numbers_to_delete = set()
+        
+        for part in numbers_str:
+            if not part:
+                continue
+            if '-' in part:
+                try:
+                    start, end = map(int, part.split('-'))
+                    numbers_to_delete.update(range(start, end + 1))
+                except ValueError:
+                    continue
+            elif part.isdigit():
+                numbers_to_delete.add(int(part))
         
         if not numbers_to_delete:
-            return await message.reply_text("❌ **ভুল সংখ্যা।** অনুগ্রহ করে একটি বা একাধিক বোতাম নম্বর দিন (যেমন: 5, 4, 2):", reply_markup=ForceReply(True))
+            return await message.reply_text("❌ **ভুল সংখ্যা।** অনুগ্রহ করে একটি বা একাধিক বোতাম নম্বর দিন (যেমন: 5, 4, 2 অথবা 1-10):")
 
         button_list = filters_dict[keyword]['button_data']
         deleted_count = 0
         
-        numbers_to_delete.sort(reverse=True)
-        for num in numbers_to_delete:
+        sorted_numbers = sorted(list(numbers_to_delete), reverse=True)
+        for num in sorted_numbers:
             index = num - 1
             if 0 <= index < len(button_list):
                 del button_list[index]
@@ -525,13 +551,13 @@ async def reply_handler(client, message):
         keyword = state['keyword']
         numbers_str = message.text.strip().split('-')
         if len(numbers_str) != 2:
-            return await message.reply_text("❌ **ভুল ফরম্যাট।** অনুগ্রহ করে দুটি সংখ্যা দিন (যেমন: 2-3):", reply_markup=ForceReply(True))
+            return await message.reply_text("❌ **ভুল ফরম্যাট।** অনুগ্রহ করে দুটি সংখ্যা দিন (যেমন: 2-3):")
 
         try:
             num1 = int(numbers_str[0].strip()) - 1
             num2 = int(numbers_str[1].strip()) - 1
         except ValueError:
-            return await message.reply_text("❌ **ভুল সংখ্যা।** অনুগ্রহ করে দুটি সংখ্যা দিন:", reply_markup=ForceReply(True))
+            return await message.reply_text("❌ **ভুল সংখ্যা।** অনুগ্রহ করে দুটি সংখ্যা দিন:")
         
         button_list = filters_dict[keyword]['button_data']
         if not (0 <= num1 < len(button_list) and 0 <= num2 < len(button_list)):
@@ -544,12 +570,27 @@ async def reply_handler(client, message):
         del user_states[user_id]
         await edit_button_cmd(client, message)
 
+# রিপ্লাই মেসেজ হ্যান্ডলার (নতুন লজিক সহ)
+@app.on_message(filters.private & filters.user(ADMIN_ID) & filters.reply)
+async def reply_handler(client, message):
+    if message.reply_to_message.forward_from_chat:
+        user_id = message.from_user.id
+        if user_id in user_states and user_states[user_id].get("command") == "channel_id_awaiting_message":
+            channel_id = message.reply_to_message.forward_from_chat.id
+            await message.reply_text(f"✅ **Channel ID:** `{channel_id}`", parse_mode=ParseMode.MARKDOWN)
+            del user_states[user_id]
+            save_data()
+    
+    if message.command and message.command[0] == "broadcast" and message.reply_to_message:
+        await broadcast_cmd(client, message)
+
+
 # চ্যানেল মেসেজ হ্যান্ডলার (শুধুমাত্র ফাইল ফিল্টার তৈরির জন্য)
 @app.on_message(filters.channel & filters.chat(CHANNEL_ID))
 async def channel_content_handler(client, message):
     global last_filter
     
-    if message.text and len(message.text.split()) == 1:
+    if message.text and len(message.text.split()) == 1 and message.text.startswith('#'):
         keyword = message.text.lower().replace('#', '')
         if not keyword:
             return
@@ -560,7 +601,7 @@ async def channel_content_handler(client, message):
             
         last_filter = keyword
         if keyword not in filters_dict:
-            filters_dict[keyword] = {'message_text': None, 'button_data': [], 'file_ids': []}
+            filters_dict[keyword] = {'message_text': None, 'button_data': [], 'file_data': [], 'type': 'file_filter'}
             await app.send_message(
                 LOG_CHANNEL_ID,
                 f"✅ **নতুন ফাইল ফিল্টার তৈরি হয়েছে!**\n🔗 শেয়ার লিংক: `https://t.me/{(await app.get_me()).username}?start={keyword}`",
@@ -571,14 +612,27 @@ async def channel_content_handler(client, message):
         save_data()
         return
 
-    if message.media and last_filter:
-        if last_filter in filters_dict and filters_dict[last_filter].get('type') != 'button_filter':
-            if 'file_ids' not in filters_dict[last_filter]:
-                filters_dict[last_filter]['file_ids'] = []
-            filters_dict[last_filter]['file_ids'].append(message.id)
+    if last_filter:
+        # Check if the message has media or text (for multi-word messages)
+        if message.media or (message.text and len(message.text.split()) > 1):
+            if last_filter in filters_dict and filters_dict[last_filter].get('type') == 'file_filter':
+                file_entry = {
+                    'file_id': message.id,
+                    'message_caption': message.caption.html if message.caption else (message.text.html if message.text else None)
+                }
+                if 'file_data' not in filters_dict[last_filter]:
+                    filters_dict[last_filter]['file_data'] = []
+                filters_dict[last_filter]['file_data'].append(file_entry)
+                save_data()
+            else:
+                await app.send_message(LOG_CHANNEL_ID, "⚠️ **কোনো সক্রিয় ফাইল ফিল্টার পাওয়া যায়নি বা এটি একটি বোতাম ফিল্টার।**")
+        
+        elif not message.media and len(message.text.split()) == 1 and not message.text.startswith('#'):
+             # This is a single word message, but not a new filter keyword, so we reset the last_filter
+            last_filter = None
+            await app.send_message(LOG_CHANNEL_ID, "📝 **দ্রষ্টব্য:** শেষ সক্রিয় ফিল্টারটি রিসেট করা হয়েছে।")
             save_data()
-        else:
-            await app.send_message(LOG_CHANNEL_ID, "⚠️ **কোনো সক্রিয় ফাইল ফিল্টার পাওয়া যায়নি বা এটি একটি বোতাম ফিল্টার।**")
+
 
 # চ্যানেল থেকে মেসেজ ডিলিট করার হ্যান্ডলার
 @app.on_deleted_messages(filters.channel & filters.chat(CHANNEL_ID))
@@ -746,8 +800,8 @@ async def pagination_callback(client, callback_query):
             except MessageNotModified:
                 pass
 
-# এডিট বোতামের কলব্যাক হ্যান্ডলার
-@app.on_callback_query(filters.regex(r"edit_"))
+# এডিট বোতামের কলব্যাক হ্যান্ডলার (পরিবর্তিত)
+@app.on_callback_query(filters.regex(r"edit_([a-zA-Z0-9_]+)_([a-zA-Z0-9_]+)_(\d+)"))
 async def edit_button_callback(client, callback_query):
     user_id = callback_query.from_user.id
     query_data = callback_query.data
@@ -755,22 +809,27 @@ async def edit_button_callback(client, callback_query):
     parts = query_data.split('_')
     action = parts[1]
     keyword = parts[2]
+    page = int(parts[3])
+    
+    if user_id not in user_states:
+        user_states[user_id] = {}
+        
+    user_states[user_id]["keyword"] = keyword
+    user_states[user_id]["page"] = page
     
     if action == "add":
-        user_states[user_id] = {"command": "edit_add_awaiting_input", "keyword": keyword}
-        save_data()
-        await callback_query.message.reply_text("➡️ **নতুন বোতামের কোড দিন (যেমন: Button 04 = link):**", reply_markup=ForceReply(True))
+        user_states[user_id]["command"] = "edit_add_awaiting_input"
+        await callback_query.message.reply_text("➡️ **নতুন বোতামের কোড দিন (যেমন: Button 04 = link):**")
     
     elif action == "delete":
-        user_states[user_id] = {"command": "edit_delete_awaiting_number", "keyword": keyword}
-        save_data()
-        await callback_query.message.reply_text("➡️ **ডিলিট করতে চান এমন বোতামের নম্বর দিন (কমা দিয়ে একাধিক নম্বর দিতে পারেন, যেমন: 5, 4, 2):**", reply_markup=ForceReply(True))
+        user_states[user_id]["command"] = "edit_delete_awaiting_number"
+        await callback_query.message.reply_text("➡️ **ডিলিট করতে চান এমন বোতামের নম্বর দিন (কমা দিয়ে একাধিক নম্বর দিতে পারেন, যেমন: 5, 4, 2 অথবা 1-10):**")
     
     elif action == "set":
-        user_states[user_id] = {"command": "edit_set_awaiting_numbers", "keyword": keyword}
-        save_data()
-        await callback_query.message.reply_text("➡️ **যে দুটি বোতামের স্থান পরিবর্তন করতে চান তাদের নম্বর দিন (যেমন: 2-3):**", reply_markup=ForceReply(True))
+        user_states[user_id]["command"] = "edit_set_awaiting_numbers"
+        await callback_query.message.reply_text("➡️ **যে দুটি বোতামের স্থান পরিবর্তন করতে চান তাদের নম্বর দিন (যেমন: 2-3):**")
 
+    save_data()
     await callback_query.answer()
 
 # এডিট বোতামের পেজিনেশন কলব্যাক হ্যান্ডলার (নতুন)
@@ -782,6 +841,12 @@ async def pagination_edit_callback(client, callback_query):
     parts = query.data.split('_')
     keyword = parts[1]
     page = int(parts[2])
+    
+    # Update the user state with the current page
+    user_id = callback_query.from_user.id
+    if user_id in user_states:
+        user_states[user_id]["page"] = page
+        save_data()
 
     if keyword in filters_dict and filters_dict[keyword].get('type') == 'button_filter':
         filter_data = filters_dict[keyword]
