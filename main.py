@@ -41,21 +41,15 @@ deep_link_keyword = None
 user_states = {}
 
 # --- Join Channels Configuration ---
-# Your original code used these variables. They are included here to avoid changes.
 CHANNEL_ID_2 = -1003049936443
 CHANNEL_LINK = "https://t.me/TA_HD_Anime"
-
-# New channel added
-CHANNEL_ID_3 = -1003097080109
-CHANNEL_LINK_3 = "https://t.me/TA_XVideos"
+CHANNEL_ID_3 = -1003097080109 # এখানে আপনার নতুন চ্যানেলের আইডি দিন
+CHANNEL_LINK_2 = "https://t.me/TA_XVideos" # এখানে আপনার নতুন চ্যানেলের লিঙ্ক দিন
 
 join_channels = [
     {"id": CHANNEL_ID_2, "name": "TA HD Anime Hindi Official Dubbed", "link": CHANNEL_LINK},
-    {"id": CHANNEL_ID_3, "name": "TA XVideos", "link": CHANNEL_LINK_3}
+    {"id": CHANNEL_ID_3, "name": "TA Xvideos", "link": CHANNEL_LINK_2}
 ]
-
-# --- Pagination Configuration ---
-BUTTONS_PER_PAGE = 10
 
 # --- Database Client and Collection ---
 mongo_client = None
@@ -175,17 +169,51 @@ app = Client(
 
 # --- Helper Functions (Pyrogram) ---
 async def is_member(client, user_id):
-    for channel in join_channels:
-        try:
-            member = await client.get_chat_member(channel['id'], user_id)
-            if member.status not in ['member', 'administrator', 'creator']:
-                return False
-        except UserNotParticipant:
-            return False
-        except Exception as e:
-            print(f"Error checking membership for channel {channel['id']}: {e}")
-            return False
+    try:
+        member = await client.get_chat_member(CHANNEL_ID_2, user_id)
+        return member.status in ['member', 'administrator', 'creator']
+    except Exception as e:
+        print(f"Error Aa Gayi Hai Bhai: {str(e)}")
+        return False
+
+async def check_access(update, client):
+    if not await is_member(client, update.effective_user.id):
+        Keyboard = [
+            [InlineKeyboardButton('Join Our Channel', url=CHANNEL_LINK)],
+            [InlineKeyboardButton('Verify', callback_data='verify_membership')]
+        ]
+        await update.message.reply_text(
+            "Bhai Meri Channel Ko Join Karle",
+            reply_markup=InlineKeyboardMarkup(Keyboard)
+        )
+        return False
     return True
+
+async def handle_callback(client, callback_query):
+    query = callback_query
+    await query.answer()
+
+    if query.data == 'verify_membership':
+        if await is_member(client, query.from_user.id):
+            await query.edit_message_text("You Joined")
+        else:
+            await query.edit_message_text("You Didnt Joined")
+
+async def start_ptb(update, context):
+    if not await check_access(update, context):
+        return
+    await context.bot.send_message(chat_id=update.effective_chat.id,text="This Is TraxDinosaur")
+    
+async def is_user_member(client, user_id):
+    try:
+        for channel in join_channels:
+            await client.get_chat_member(channel['id'], user_id)
+        return True
+    except UserNotParticipant:
+        return False
+    except Exception as e:
+        print(f"Error checking membership: {e}")
+        return False
 
 async def delete_messages_later(chat_id, message_ids, delay_seconds):
     await asyncio.sleep(delay_seconds)
@@ -194,36 +222,6 @@ async def delete_messages_later(chat_id, message_ids, delay_seconds):
         print(f"Successfully deleted messages {message_ids} in chat {chat_id}.")
     except Exception as e:
         print(f"Error deleting messages {message_ids} in chat {chat_id}: {e}")
-    
-def create_paginated_keyboard(all_buttons, keyword, page):
-    start_index = page * BUTTONS_PER_PAGE
-    end_index = start_index + BUTTONS_PER_PAGE
-    
-    # Get buttons for the current page
-    current_buttons = all_buttons[start_index:end_index]
-    
-    keyboard_layout = []
-    
-    # Add buttons in rows of 2
-    for i in range(0, len(current_buttons), 2):
-        row = [InlineKeyboardButton(text=btn['text'], url=btn['url']) for btn in current_buttons[i:i+2]]
-        keyboard_layout.append(row)
-    
-    total_pages = (len(all_buttons) + BUTTONS_PER_PAGE - 1) // BUTTONS_PER_PAGE
-    
-    navigation_buttons = []
-    if page > 0:
-        navigation_buttons.append(InlineKeyboardButton("⏪ Previous", callback_data=f"pagi:{keyword}:{page-1}"))
-    
-    navigation_buttons.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data="ignore"))
-    
-    if page < total_pages - 1:
-        navigation_buttons.append(InlineKeyboardButton("Next ⏩", callback_data=f"pagi:{keyword}:{page+1}"))
-    
-    if navigation_buttons:
-        keyboard_layout.append(navigation_buttons)
-        
-    return InlineKeyboardMarkup(keyboard_layout)
 
 # --- Message Handlers (Pyrogram) ---
 @app.on_message(filters.command("start") & filters.private)
@@ -265,12 +263,13 @@ async def start_cmd(client, message):
         except Exception as e:
             print(f"Failed to log deep link message: {e}")
 
-    # Check membership for all required channels
-    is_fully_member = await is_member(client, user_id)
-    if not is_fully_member:
+    if not await is_user_member(client, user_id):
         buttons = []
         for channel in join_channels:
-            buttons.append([InlineKeyboardButton(f"✅ Join {channel['name']}", url=channel['link'])])
+            try:
+                await client.get_chat_member(channel['id'], user_id)
+            except UserNotParticipant:
+                buttons.append([InlineKeyboardButton(f"✅ Join {channel['name']}", url=channel['link'])])
 
         bot_username = (await client.get_me()).username
         try_again_url = f"https://t.me/{bot_username}?start={deep_link_keyword}" if deep_link_keyword else f"https://t.me/{bot_username}"
@@ -285,47 +284,32 @@ async def start_cmd(client, message):
 
     if deep_link_keyword:
         keyword = deep_link_keyword
-        if keyword in filters_dict:
-            filter_data = filters_dict[keyword]
-            
-            if "message_ids" in filter_data and "buttons" not in filter_data:
-                # This is a normal filter with just files
-                if autodelete_time > 0:
-                    minutes = autodelete_time // 60
-                    hours = autodelete_time // 3600
-                    if hours > 0:
-                        delete_time_str = f"{hours} hour{'s' if hours > 1 else ''}"
-                    else:
-                        delete_time_str = f"{minutes} minute{'s' if minutes > 1 else ''}"
-                    await message.reply_text(f"✅ **Files found!** Sending now. Please note, these files will be automatically deleted in **{delete_time_str}**.", parse_mode=ParseMode.MARKDOWN)
+        if keyword in filters_dict and filters_dict[keyword]:
+            if autodelete_time > 0:
+                minutes = autodelete_time // 60
+                hours = autodelete_time // 3600
+                if hours > 0:
+                    delete_time_str = f"{hours} hour{'s' if hours > 1 else ''}"
                 else:
-                    await message.reply_text(f"✅ **Files found!** Sending now...")
-                sent_message_ids = []
-                for file_id in filter_data.get("message_ids", []):
-                    try:
-                        sent_msg = await app.copy_message(message.chat.id, CHANNEL_ID, file_id, protect_content=restrict_status)
-                        sent_message_ids.append(sent_msg.id)
-                        await asyncio.sleep(0.5)
-                    except FloodWait as e:
-                        await asyncio.sleep(e.value)
-                        sent_msg = await app.copy_message(message.chat.id, CHANNEL_ID, file_id, protect_content=restrict_status)
-                        sent_message_ids.append(sent_msg.id)
-                    except Exception as e:
-                        print(f"Error copying message {file_id}: {e}")
-                await message.reply_text("🎉 **All files sent!**")
-                if autodelete_time > 0:
-                    asyncio.create_task(delete_messages_later(message.chat.id, sent_message_ids, autodelete_time))
-            
-            elif "buttons" in filter_data:
-                # This filter has inline buttons
-                all_buttons = filter_data["buttons"]
-                paginated_keyboard = create_paginated_keyboard(all_buttons, keyword, 0)
-                await message.reply_text(
-                    "🎉 **Files found!**\n\n**Select an episode below:**",
-                    reply_markup=paginated_keyboard,
-                    parse_mode=ParseMode.MARKDOWN
-                )
-            
+                    delete_time_str = f"{minutes} minute{'s' if minutes > 1 else ''}"
+                await message.reply_text(f"✅ **Files found!** Sending now. Please note, these files will be automatically deleted in **{delete_time_str}**.", parse_mode=ParseMode.MARKDOWN)
+            else:
+                await message.reply_text(f"✅ **Files found!** Sending now...")
+            sent_message_ids = []
+            for file_id in filters_dict[keyword]:
+                try:
+                    sent_msg = await app.copy_message(message.chat.id, CHANNEL_ID, file_id, protect_content=restrict_status)
+                    sent_message_ids.append(sent_msg.id)
+                    await asyncio.sleep(0.5)
+                except FloodWait as e:
+                    await asyncio.sleep(e.value)
+                    sent_msg = await app.copy_message(message.chat.id, CHANNEL_ID, file_id, protect_content=restrict_status)
+                    sent_message_ids.append(sent_msg.id)
+                except Exception as e:
+                    print(f"Error copying message {file_id}: {e}")
+            await message.reply_text("🎉 **All files sent!**")
+            if autodelete_time > 0:
+                asyncio.create_task(delete_messages_later(message.chat.id, sent_message_ids, autodelete_time))
         else:
             await message.reply_text("❌ **No files found for this keyword.**")
         deep_link_keyword = None
@@ -346,21 +330,18 @@ async def start_cmd(client, message):
     else:
         await message.reply_text("👋 **Welcome!** You can access files via special links.")
 
-@app.on_message(filters.channel & (filters.text | filters.media) & filters.chat(CHANNEL_ID))
-async def channel_content_handler(client, message):
+@app.on_message(filters.channel & filters.text & filters.chat(CHANNEL_ID))
+async def channel_text_handler(client, message):
     global last_filter
-    is_single_word_text = message.text and len(message.text.split()) == 1
-
-    if is_single_word_text:
-        keyword = message.text.lower().replace('#', '')
+    text = message.text
+    if text and len(text.split()) == 1:
+        keyword = text.lower().replace('#', '')
         if not keyword:
             return
-        
         last_filter = keyword
         save_data()
-        
         if keyword not in filters_dict:
-            filters_dict[keyword] = {"message_ids": []}
+            filters_dict[keyword] = []
             save_data()
             await app.send_message(
                 LOG_CHANNEL_ID,
@@ -369,43 +350,17 @@ async def channel_content_handler(client, message):
             )
         else:
             await app.send_message(LOG_CHANNEL_ID, f"⚠️ **Filter '{keyword}' is already active.**")
-    else:
-        if last_filter:
-            if last_filter not in filters_dict:
-                filters_dict[last_filter] = {"message_ids": []}
-            
-            # Check for inline buttons and save them separately
-            if message.reply_markup and message.reply_markup.inline_keyboard:
-                buttons = []
-                for row in message.reply_markup.inline_keyboard:
-                    for button in row:
-                        if button.url:
-                            buttons.append({"text": button.text, "url": button.url})
-                if buttons:
-                    filters_dict[last_filter]["buttons"] = buttons
-                    await app.send_message(LOG_CHANNEL_ID, f"✅ **{len(buttons)} buttons saved to filter '{last_filter}'.**")
-            
-            filters_dict[last_filter]["message_ids"].append(message.id)
-            save_data()
-        else:
-            await app.send_message(LOG_CHANNEL_ID, "⚠️ **No active filter found.**")
 
-@app.on_callback_query(filters.regex(r'^pagi:'))
-async def pagination_callback(client, callback_query):
-    query_data = callback_query.data.split(":")
-    keyword = query_data[1]
-    page = int(query_data[2])
-    
-    if keyword in filters_dict and "buttons" in filters_dict[keyword]:
-        all_buttons = filters_dict[keyword]["buttons"]
-        paginated_keyboard = create_paginated_keyboard(all_buttons, keyword, page)
-        try:
-            await callback_query.message.edit_reply_markup(paginated_keyboard)
-        except MessageNotModified:
-            pass
+@app.on_message(filters.channel & filters.media & filters.chat(CHANNEL_ID))
+async def channel_media_handler(client, message):
+    if last_filter:
+        keyword = last_filter
+        if keyword not in filters_dict:
+            filters_dict[keyword] = []
+        filters_dict[keyword].append(message.id)
+        save_data()
     else:
-        await callback_query.answer("❌ Buttons not found for this filter.", show_alert=True)
-    await callback_query.answer()
+        await app.send_message(LOG_CHANNEL_ID, "⚠️ **No active filter found.**")
 
 @app.on_deleted_messages(filters.channel & filters.chat(CHANNEL_ID))
 async def channel_delete_handler(client, messages):
@@ -527,15 +482,19 @@ async def check_join_status_callback(client, callback_query):
     user_id = callback_query.from_user.id
     await callback_query.answer("Checking membership...", show_alert=True)
     
-    if await is_member(client, user_id):
+    if await is_user_member(client, user_id):
         await callback_query.message.edit_text("✅ **You have successfully joined!**\n\n**Please go back to the chat and send your link again.**", parse_mode=ParseMode.MARKDOWN)
     else:
         buttons = []
         for channel in join_channels:
-            buttons.append([InlineKeyboardButton(f"✅ Join {channel['name']}", url=channel['link'])])
-
+            try:
+                await client.get_chat_member(channel['id'], user_id)
+            except UserNotParticipant:
+                buttons.append([InlineKeyboardButton(f"✅ Join {channel['name']}", url=channel['link'])])
+        
         bot_username = (await client.get_me()).username
         try_again_url = f"https://t.me/{bot_username}"
+
         buttons.append([InlineKeyboardButton("🔄 Try Again", url=try_again_url)])
         keyboard = InlineKeyboardMarkup(buttons)
         await callback_query.message.edit_text("❌ **You are still not a member.**", reply_markup=keyboard)
