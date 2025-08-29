@@ -692,6 +692,7 @@ async def check_join_status_callback(client, callback_query):
         
         bot_username = (await client.get_me()).username
         try_again_url = f"https://t.me/{bot_username}"
+
         buttons.append([InlineKeyboardButton("🔄 Try Again", url=try_again_url)])
         keyboard = InlineKeyboardMarkup(buttons)
         await callback_query.message.edit_text("❌ **You are still not a member.**", reply_markup=keyboard)
