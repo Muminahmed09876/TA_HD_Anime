@@ -44,8 +44,8 @@ user_states = {}
 # --- Join Channels Configuration ---
 CHANNEL_ID_2 = -1003049936443
 CHANNEL_LINK = "https://t.me/TA_HD_Anime"
-CHANNEL_ID_3 = -1003097080109 # এখানে আপনার নতুন চ্যানেলের আইডি দিন
-CHANNEL_LINK_2 = "https://t.me/TA_XVideos" # এখানে আপনার নতুন চ্যানেলের লিঙ্ক দিন
+CHANNEL_ID_3 = -1003097080109
+CHANNEL_LINK_2 = "https://t.me/TA_XVideos"
 
 join_channels = [
     {"id": CHANNEL_ID_2, "name": "TA HD Anime Hindi Official Dubbed", "link": CHANNEL_LINK},
@@ -225,7 +225,6 @@ async def delete_messages_later(chat_id, message_ids, delay_seconds):
         print(f"Error deleting messages {message_ids} in chat {chat_id}: {e}")
 
 # --- Pagination Helper Functions ---
-
 def create_paged_buttons(button_list, page, page_size=10):
     """
     Creates an InlineKeyboardMarkup with a limited number of buttons per page and adds
@@ -352,7 +351,7 @@ async def start_cmd(client, message):
             filter_data = filters_dict[keyword]
             
             # Check if the filter has inline buttons
-            if filter_data['button_data']:
+            if 'button_data' in filter_data and filter_data['button_data']:
                 page = 1
                 reply_text = filter_data.get('message_text', "Select an option:")
                 reply_markup = create_paged_buttons(filter_data['button_data'], page)
@@ -597,7 +596,7 @@ async def check_join_status_callback(client, callback_query):
         buttons.append([InlineKeyboardButton("🔄 Try Again", url=try_again_url)])
         keyboard = InlineKeyboardMarkup(buttons)
         await callback_query.message.edit_text("❌ **You are still not a member.**", reply_markup=keyboard)
-        
+
 @app.on_callback_query(filters.regex(r"page_(\d+)"))
 async def pagination_callback(client, callback_query):
     query = callback_query
@@ -612,7 +611,7 @@ async def pagination_callback(client, callback_query):
     keyword = deep_link_keyword # This needs to be correctly passed or retrieved
     if keyword in filters_dict:
         filter_data = filters_dict[keyword]
-        if filter_data['button_data']:
+        if 'button_data' in filter_data and filter_data['button_data']:
             reply_text = filter_data.get('message_text', "Select an option:")
             reply_markup = create_paged_buttons(filter_data['button_data'], page)
             try:
