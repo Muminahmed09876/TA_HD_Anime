@@ -226,15 +226,14 @@ def create_paged_buttons(keyword, button_list, page, page_size=10):
 # টেক্সট থেকে ইনলাইন বোতামের ডেটা পার্স করা
 def parse_inline_buttons_from_text(text):
     button_data = []
-    # Regular expression to find text inside [...] and the link that follows.
-    pattern = re.compile(r'\[(.*?)\]\s*-\s*(https?:\/\/\S+)', re.IGNORECASE)
+    button_pairs = text.split(',')
     
-    matches = pattern.findall(text)
-    
-    for match in matches:
-        button_text = match[0].strip()
-        button_link = match[1].strip()
-        button_data.append({'text': button_text, 'link': button_link})
+    for pair in button_pairs:
+        parts = pair.split(' = ', 1)
+        if len(parts) == 2:
+            button_text = parts[0].strip()
+            button_link = parts[1].strip()
+            button_data.append({'text': button_text, 'link': button_link})
             
     return button_data
 
@@ -437,7 +436,7 @@ async def reply_handler(client, message):
 
         user_states[user_id] = {"command": "button_awaiting_buttons", "keyword": keyword}
         save_data()
-        await message.reply_text("➡️ **বোতামের কোড দিন (যেমন: [Button 01] - link1, [Button 02] - link2):**", reply_markup=ForceReply(True))
+        await message.reply_text("➡️ **বোতামের কোড দিন (যেমন: Button 01 - link1, Button 02 - link2):**", reply_markup=ForceReply(True))
 
     elif state["command"] == "button_awaiting_buttons":
         keyword = state["keyword"]
@@ -485,7 +484,7 @@ async def reply_handler(client, message):
     elif state["command"] == "edit_add_awaiting_input":
         keyword = state['keyword']
         button_text = message.text.strip()
-        new_buttons = parse_inline_buttons_from_text(f"[dummy] - link, {button_text}")
+        new_buttons = parse_inline_buttons_from_text(f"dummy - link, {button_text}")
         new_buttons.pop(0) # Remove the dummy button
 
         if not new_buttons:
@@ -760,7 +759,7 @@ async def edit_button_callback(client, callback_query):
     if action == "add":
         user_states[user_id] = {"command": "edit_add_awaiting_input", "keyword": keyword}
         save_data()
-        await callback_query.message.reply_text("➡️ **নতুন বোতামের কোড দিন (যেমন: [Button 04] - link):**", reply_markup=ForceReply(True))
+        await callback_query.message.reply_text("➡️ **নতুন বোতামের কোড দিন (যেমন: Button 04 = link):**", reply_markup=ForceReply(True))
     
     elif action == "delete":
         user_states[user_id] = {"command": "edit_delete_awaiting_number", "keyword": keyword}
