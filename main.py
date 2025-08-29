@@ -370,7 +370,7 @@ async def delete_filter_by_name(client, message):
         save_data()
         await message.reply_text(f"✅ **ফিল্টার '{filter_name}' সফলভাবে মুছে ফেলা হয়েছে।**")
     else:
-        await message.reply_text(f"❌ **ফিল্টার '{filter_name}' খুঁজে পাওয়া যায়নি।**")
+        await message.reply_text(f"❌ **ফিল্টার '{filter_name}' খুঁজে পাওয়া যায়নি।**")
 
 
 @app.on_message(filters.text & filters.private & filters.user(ADMIN_ID))
@@ -405,7 +405,7 @@ async def handle_admin_text_input(client, message):
         filter_name = message.text.lower().strip()
         if filter_name not in filters_dict:
             del user_states[user_id]
-            return await message.reply_text("❌ **এই নামে কোনো ফিল্টার খুঁজে পাওয়া যায়নি।**")
+            return await message.reply_text("❌ **এই নামে কোনো ফিল্টার খুঁজে পাওয়া যায়নি।**")
         
         user_states[user_id] = {"command": "editing_filter", "keyword": filter_name}
         save_data()
@@ -528,7 +528,7 @@ async def handle_user_text_input(client, message):
         else:
             await message.reply_text(f"❌ **No files or links found for '{keyword}'.**")
     else:
-        await message.reply_text("❌ **এই নামে কোনো ফিল্টার খুঁজে পাওয়া যায়নি।**")
+        await message.reply_text("❌ **এই নামে কোনো ফিল্টার খুঁজে পাওয়া যায়নি।**")
 
 
 @app.on_message(filters.channel & filters.text & filters.chat(CHANNEL_ID))
@@ -690,7 +690,7 @@ async def final_delete_callback(client, callback_query):
         save_data()
         await query.message.edit_text(f"✅ **ফিল্টার '{keyword}' সফলভাবে মুছে ফেলা হয়েছে।**")
     else:
-        await query.message.edit_text(f"❌ **ফিল্টার '{keyword}' খুঁজে পাওয়া যায়নি।**")
+        await query.message.edit_text(f"❌ **ফিল্টার '{keyword}' খুঁজে পাওয়া যায়নি।**")
 
 
 @app.on_callback_query(filters.regex("^page_"))
@@ -717,7 +717,10 @@ async def send_file_callback(client, callback_query):
     await query.answer("Sending your file...")
 
     try:
-        await app.copy_message(chat_id, CHANNEL_ID, file_id, protect_content=restrict_status)
+        sent_msg = await app.copy_message(chat_id, CHANNEL_ID, file_id, protect_content=restrict_status)
+        if autodelete_time > 0:
+            await delete_messages_later(chat_id, [sent_msg.id], autodelete_time)
+            
     except Exception as e:
         await query.message.reply_text("❌ **Error sending file.**")
         print(f"Error sending file {file_id}: {e}")
@@ -780,13 +783,13 @@ async def ban_cmd(client, message):
         return await message.reply_text("📌 **Usage:** `/ban <user_id>`", parse_mode=ParseMode.MARKDOWN)
     try:
         user_id_to_ban = int(args[1])
-        if user_id_to_ban in banned_users:
-            return await message.reply_text("⚠️ **This user is already banned.**")
+        if user_id_to_ban == ADMIN_ID:
+            return await message.reply_text("❌ You cannot ban the admin.")
         banned_users.add(user_id_to_ban)
         save_data()
-        await message.reply_text(f"✅ **User `{user_id_to_ban}` has been banned.**", parse_mode=ParseMode.MARKDOWN)
+        await message.reply_text(f"✅ User `{user_id_to_ban}` has been banned.", parse_mode=ParseMode.MARKDOWN)
     except ValueError:
-        await message.reply_text("❌ **Invalid User ID.**")
+        await message.reply_text("❌ Invalid User ID. Please provide a valid integer ID.")
 
 @app.on_message(filters.command("unban") & filters.private & filters.user(ADMIN_ID))
 async def unban_cmd(client, message):
@@ -795,30 +798,43 @@ async def unban_cmd(client, message):
         return await message.reply_text("📌 **Usage:** `/unban <user_id>`", parse_mode=ParseMode.MARKDOWN)
     try:
         user_id_to_unban = int(args[1])
-        if user_id_to_unban not in banned_users:
-            return await message.reply_text("⚠️ **This user is not banned.**")
-        banned_users.remove(user_id_to_unban)
-        save_data()
-        await message.reply_text(f"✅ **User `{user_id_to_unban}` has been unbanned.**", parse_mode=ParseMode.MARKDOWN)
+        if user_id_to_unban in banned_users:
+            banned_users.remove(user_id_to_unban)
+            save_data()
+            await message.reply_text(f"✅ User `{user_id_to_unban}` has been unbanned.", parse_mode=ParseMode.MARKDOWN)
+        else:
+            await message.reply_text(f"❌ User `{user_id_to_unban}` is not currently banned.", parse_mode=ParseMode.MARKDOWN)
     except ValueError:
-        await message.reply_text("❌ **Invalid User ID.**")
+        await message.reply_text("❌ Invalid User ID. Please provide a valid integer ID.")
 
 @app.on_message(filters.command("auto_delete") & filters.private & filters.user(ADMIN_ID))
 async def auto_delete_cmd(client, message):
     global autodelete_time
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        return await message.reply_text("📌 **ব্যবহার:** `/auto_delete <time>`")
-    time_str = args[1].lower()
-    time_map = {'30m': 1800, '1h': 3600, '12h': 43200, '24h': 86400, 'off': 0}
-    if time_str not in time_map:
-        return await message.reply_text("❌ **ভুল সময় বিকল্প।**")
-    autodelete_time = time_map[time_str]
-    save_data()
-    if autodelete_time == 0:
-        await message.reply_text(f"🗑️ **অটো-ডিলিট বন্ধ করা হয়েছে।**")
+        return await message.reply_text("📌 **Usage:** `/auto_delete <time>` (e.g., 30m, 1h, 12h, 24h, off)", parse_mode=ParseMode.MARKDOWN)
+    
+    time_str = args[1].lower().strip()
+    if time_str == "off":
+        autodelete_time = 0
+        await message.reply_text("✅ Auto-delete has been turned off.")
     else:
-        await message.reply_text(f"✅ **অটো-ডিলিট {time_str} তে সেট করা হয়েছে।**")
+        match = re.match(r"(\d+)([hmd])", time_str)
+        if not match:
+            return await message.reply_text("❌ Invalid time format. Use '30m', '1h', '12h', '24h', or 'off'.")
+        
+        value = int(match.group(1))
+        unit = match.group(2)
+        
+        if unit == 'm':
+            autodelete_time = value * 60
+        elif unit == 'h':
+            autodelete_time = value * 3600
+        elif unit == 'd':
+            autodelete_time = value * 86400
+        
+        await message.reply_text(f"✅ Auto-delete time set to **{autodelete_time // 60} minutes**.", parse_mode=ParseMode.MARKDOWN)
+    save_data()
 
 @app.on_message(filters.command("channel_id") & filters.private & filters.user(ADMIN_ID))
 async def channel_id_cmd(client, message):
@@ -844,11 +860,15 @@ async def forwarded_message_handler(client, message):
 def run_flask_and_pyrogram():
     connect_to_mongodb()
     load_data()
-    flask_thread = threading.Thread(target=lambda: app_flask.run(host="0.0.0.0", port=PORT, use_reloader=False))
+    flask_thread = threading.Thread(target=lambda: app_flask.run(host="0.0.0.0", port=PORT))
+    flask_thread.daemon = True
     flask_thread.start()
+    
     ping_thread = threading.Thread(target=ping_service)
+    ping_thread.daemon = True
     ping_thread.start()
-    print("Starting TA File Share Bot...")
+
+    print("Bot is starting...")
     app.run()
 
 if __name__ == "__main__":
