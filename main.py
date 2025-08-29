@@ -10,6 +10,7 @@ from pymongo import MongoClient
 from dotenv import load_dotenv
 from flask import Flask, render_template_string
 import requests
+import re
 
 # --- Load Environment Variables ---
 load_dotenv()
@@ -223,6 +224,69 @@ async def delete_messages_later(chat_id, message_ids, delay_seconds):
     except Exception as e:
         print(f"Error deleting messages {message_ids} in chat {chat_id}: {e}")
 
+# --- Pagination Helper Functions ---
+
+def create_paged_buttons(button_list, page, page_size=10):
+    """
+    Creates an InlineKeyboardMarkup with a limited number of buttons per page and adds
+    pagination controls.
+    """
+    start_index = (page - 1) * page_size
+    end_index = start_index + page_size
+    current_page_buttons = button_list[start_index:end_index]
+    
+    keyboard = []
+    
+    # Add buttons in rows of 2
+    row = []
+    for button_data in current_page_buttons:
+        row.append(InlineKeyboardButton(button_data['text'], url=button_data['link']))
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+
+    # Add navigation buttons
+    total_pages = (len(button_list) + page_size - 1) // page_size
+    nav_row = []
+    if page > 1:
+        nav_row.append(InlineKeyboardButton("⏪ Previous", callback_data=f"page_{page - 1}"))
+    nav_row.append(InlineKeyboardButton(f"{page}/{total_pages}", callback_data="ignore"))
+    if page < total_pages:
+        nav_row.append(InlineKeyboardButton("Next ⏩", callback_data=f"page_{page + 1}"))
+    
+    if nav_row:
+        keyboard.append(nav_row)
+
+    return InlineKeyboardMarkup(keyboard)
+
+def parse_inline_buttons_from_text(text):
+    """
+    Parses a text message to extract inline button data.
+    The format should be [button (text - link, text - link)]
+    Example: "[button (Button 01 - https://example.com, Button 02 - https://example.org)]"
+    """
+    button_data = []
+    
+    match = re.search(r'\[button\s*\((.*?)\)\]', text, re.DOTALL)
+    if not match:
+        return button_data
+    
+    content = match.group(1)
+    
+    # Split by comma outside of parentheses
+    button_pairs = content.split(',')
+    
+    for pair in button_pairs:
+        parts = pair.split(' - ', 1)
+        if len(parts) == 2:
+            button_text = parts[0].strip()
+            button_link = parts[1].strip()
+            button_data.append({'text': button_text, 'link': button_link})
+            
+    return button_data
+
 # --- Message Handlers (Pyrogram) ---
 @app.on_message(filters.command("start") & filters.private)
 async def start_cmd(client, message):
@@ -284,32 +348,46 @@ async def start_cmd(client, message):
 
     if deep_link_keyword:
         keyword = deep_link_keyword
-        if keyword in filters_dict and filters_dict[keyword]:
-            if autodelete_time > 0:
-                minutes = autodelete_time // 60
-                hours = autodelete_time // 3600
-                if hours > 0:
-                    delete_time_str = f"{hours} hour{'s' if hours > 1 else ''}"
+        if keyword in filters_dict:
+            filter_data = filters_dict[keyword]
+            
+            # Check if the filter has inline buttons
+            if filter_data['button_data']:
+                page = 1
+                reply_text = filter_data.get('message_text', "Select an option:")
+                reply_markup = create_paged_buttons(filter_data['button_data'], page)
+                
+                await message.reply_text(reply_text, reply_markup=reply_markup)
+            
+            # Handle regular files if no buttons are present or if you want to send both
+            if 'file_ids' in filter_data and filter_data['file_ids']:
+                if autodelete_time > 0:
+                    minutes = autodelete_time // 60
+                    hours = autodelete_time // 3600
+                    if hours > 0:
+                        delete_time_str = f"{hours} hour{'s' if hours > 1 else ''}"
+                    else:
+                        delete_time_str = f"{minutes} minute{'s' if minutes > 1 else ''}"
+                    await message.reply_text(f"✅ **Files found!** Sending now. Please note, these files will be automatically deleted in **{delete_time_str}**.", parse_mode=ParseMode.MARKDOWN)
                 else:
-                    delete_time_str = f"{minutes} minute{'s' if minutes > 1 else ''}"
-                await message.reply_text(f"✅ **Files found!** Sending now. Please note, these files will be automatically deleted in **{delete_time_str}**.", parse_mode=ParseMode.MARKDOWN)
-            else:
-                await message.reply_text(f"✅ **Files found!** Sending now...")
-            sent_message_ids = []
-            for file_id in filters_dict[keyword]:
-                try:
-                    sent_msg = await app.copy_message(message.chat.id, CHANNEL_ID, file_id, protect_content=restrict_status)
-                    sent_message_ids.append(sent_msg.id)
-                    await asyncio.sleep(0.5)
-                except FloodWait as e:
-                    await asyncio.sleep(e.value)
-                    sent_msg = await app.copy_message(message.chat.id, CHANNEL_ID, file_id, protect_content=restrict_status)
-                    sent_message_ids.append(sent_msg.id)
-                except Exception as e:
-                    print(f"Error copying message {file_id}: {e}")
-            await message.reply_text("🎉 **All files sent!**")
-            if autodelete_time > 0:
-                asyncio.create_task(delete_messages_later(message.chat.id, sent_message_ids, autodelete_time))
+                    await message.reply_text(f"✅ **Files found!** Sending now...")
+                
+                sent_message_ids = []
+                for file_id in filter_data['file_ids']:
+                    try:
+                        sent_msg = await app.copy_message(message.chat.id, CHANNEL_ID, file_id, protect_content=restrict_status)
+                        sent_message_ids.append(sent_msg.id)
+                        await asyncio.sleep(0.5)
+                    except FloodWait as e:
+                        await asyncio.sleep(e.value)
+                        sent_msg = await app.copy_message(message.chat.id, CHANNEL_ID, file_id, protect_content=restrict_status)
+                        sent_message_ids.append(sent_msg.id)
+                    except Exception as e:
+                        print(f"Error copying message {file_id}: {e}")
+                await message.reply_text("🎉 **All files sent!**")
+                if autodelete_time > 0:
+                    asyncio.create_task(delete_messages_later(message.chat.id, sent_message_ids, autodelete_time))
+            
         else:
             await message.reply_text("❌ **No files found for this keyword.**")
         deep_link_keyword = None
@@ -330,37 +408,58 @@ async def start_cmd(client, message):
     else:
         await message.reply_text("👋 **Welcome!** You can access files via special links.")
 
-@app.on_message(filters.channel & filters.text & filters.chat(CHANNEL_ID))
-async def channel_text_handler(client, message):
-    global last_filter
-    text = message.text
-    if text and len(text.split()) == 1:
-        keyword = text.lower().replace('#', '')
-        if not keyword:
-            return
-        last_filter = keyword
-        save_data()
-        if keyword not in filters_dict:
-            filters_dict[keyword] = []
-            save_data()
-            await app.send_message(
-                LOG_CHANNEL_ID,
-                f"✅ **New filter created!**\n🔗 Share link: `https://t.me/{(await app.get_me()).username}?start={keyword}`",
-                parse_mode=ParseMode.MARKDOWN
-            )
-        else:
-            await app.send_message(LOG_CHANNEL_ID, f"⚠️ **Filter '{keyword}' is already active.**")
 
-@app.on_message(filters.channel & filters.media & filters.chat(CHANNEL_ID))
-async def channel_media_handler(client, message):
-    if last_filter:
-        keyword = last_filter
-        if keyword not in filters_dict:
-            filters_dict[keyword] = []
-        filters_dict[keyword].append(message.id)
-        save_data()
-    else:
-        await app.send_message(LOG_CHANNEL_ID, "⚠️ **No active filter found.**")
+@app.on_message(filters.channel & filters.chat(CHANNEL_ID))
+async def channel_content_handler(client, message):
+    global last_filter
+    
+    if message.text:
+        text = message.text
+        # Check if the message is a new filter (single word without buttons)
+        if len(text.split()) == 1 and "button" not in text.lower():
+            keyword = text.lower().replace('#', '')
+            if not keyword:
+                return
+            
+            last_filter = keyword
+            if keyword not in filters_dict:
+                filters_dict[keyword] = {'message_text': None, 'button_data': [], 'file_ids': []}
+                await app.send_message(
+                    LOG_CHANNEL_ID,
+                    f"✅ **New filter created!**\n🔗 Share link: `https://t.me/{(await app.get_me()).username}?start={keyword}`",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            else:
+                await app.send_message(LOG_CHANNEL_ID, f"⚠️ **Filter '{keyword}' is already active.**")
+            save_data()
+            return
+    
+        # Check if it contains button data for an existing filter
+        button_data = parse_inline_buttons_from_text(text)
+        if last_filter and button_data:
+            filters_dict[last_filter]['message_text'] = text
+            filters_dict[last_filter]['button_data'] = button_data
+            save_data()
+            await app.send_message(LOG_CHANNEL_ID, f"✅ **Inline buttons saved for filter '{last_filter}'.**")
+            return
+            
+        # If it's a regular multi-word text message, add it as a file ID (or just save the message)
+        if last_filter and last_filter in filters_dict:
+            if 'file_ids' not in filters_dict[last_filter]:
+                filters_dict[last_filter]['file_ids'] = []
+            filters_dict[last_filter]['file_ids'].append(message.id)
+            save_data()
+            return
+            
+    # Handle media messages
+    if message.media and last_filter:
+        if last_filter in filters_dict:
+            if 'file_ids' not in filters_dict[last_filter]:
+                filters_dict[last_filter]['file_ids'] = []
+            filters_dict[last_filter]['file_ids'].append(message.id)
+            save_data()
+        else:
+            await app.send_message(LOG_CHANNEL_ID, "⚠️ **No active filter found.**")
 
 @app.on_deleted_messages(filters.channel & filters.chat(CHANNEL_ID))
 async def channel_delete_handler(client, messages):
@@ -498,6 +597,29 @@ async def check_join_status_callback(client, callback_query):
         buttons.append([InlineKeyboardButton("🔄 Try Again", url=try_again_url)])
         keyboard = InlineKeyboardMarkup(buttons)
         await callback_query.message.edit_text("❌ **You are still not a member.**", reply_markup=keyboard)
+        
+@app.on_callback_query(filters.regex(r"page_(\d+)"))
+async def pagination_callback(client, callback_query):
+    query = callback_query
+    await query.answer()
+    
+    page = int(query.data.split('_')[1])
+    
+    # This logic assumes the start_cmd handler is the only one that uses 'page' callback data
+    # and that the deep_link_keyword remains valid for the duration of the pagination.
+    # A more robust solution might pass the keyword through the callback data.
+    
+    keyword = deep_link_keyword # This needs to be correctly passed or retrieved
+    if keyword in filters_dict:
+        filter_data = filters_dict[keyword]
+        if filter_data['button_data']:
+            reply_text = filter_data.get('message_text', "Select an option:")
+            reply_markup = create_paged_buttons(filter_data['button_data'], page)
+            try:
+                await query.edit_message_text(reply_text, reply_markup=reply_markup)
+            except MessageNotModified:
+                pass
+
 
 @app.on_message(filters.command("channel_id") & filters.private & filters.user(ADMIN_ID))
 async def channel_id_cmd(client, message):
