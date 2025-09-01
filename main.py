@@ -428,7 +428,7 @@ async def edit_button_cmd(client, message):
     reply_text = f"⚙️ **'{keyword}' ফিল্টার এডিট করছেন।**"
     await message.reply_text(reply_text, reply_markup=create_paged_edit_buttons(keyword, button_list, 1), parse_mode=ParseMode.MARKDOWN)
 
-# সাধারণ মেসেজ হ্যান্ডলার (নতুন লজিক সহ)
+# সাধারণ মেসেজ হ্যান্ডলার (সংশোধিত)
 @app.on_message(filters.private & filters.user(ADMIN_ID) & filters.text & ~filters.command(["start", "button", "edit_button", "broadcast", "delete", "restrict", "ban", "unban", "auto_delete", "channel_id"]))
 async def message_handler(client, message):
     user_id = message.from_user.id
@@ -501,7 +501,6 @@ async def message_handler(client, message):
         save_data()
         await message.reply_text("✅ **নতুন বোতাম সফলভাবে যুক্ত হয়েছে!**")
         
-        page = state.get("page", 1)
         del user_states[user_id]
         await edit_button_cmd(client, message)
 
@@ -770,52 +769,19 @@ async def pagination_callback(client, callback_query):
     parts = query.data.split('_')
     keyword = parts[1]
     page = int(parts[2])
+    
+    if keyword not in filters_dict or filters_dict[keyword].get('type') != 'button_filter':
+        return await query.message.edit_text("⚠️ **Filter not found.**")
 
-    if keyword in filters_dict:
-        filter_data = filters_dict[keyword]
-        if 'button_data' in filter_data and filter_data['button_data']:
-            reply_text = filter_data.get('message_text', "Select an option:")
-            reply_markup = create_paged_buttons(keyword, filter_data['button_data'], page)
-            try:
-                await query.edit_message_text(reply_text, reply_markup=reply_markup)
-            except MessageNotModified:
-                pass
+    button_list = filters_dict[keyword]['button_data']
+    try:
+        await query.message.edit_reply_markup(reply_markup=create_paged_buttons(keyword, button_list, page))
+    except MessageNotModified:
+        pass
 
-# এডিট বোতামের কলব্যাক হ্যান্ডলার (পরিবর্তিত)
-@app.on_callback_query(filters.regex(r"edit_([a-zA-Z0-9_]+)_([a-zA-Z0-9_]+)_(\d+)"))
-async def edit_button_callback(client, callback_query):
-    user_id = callback_query.from_user.id
-    query_data = callback_query.data
-    
-    parts = query_data.split('_')
-    action = parts[1]
-    keyword = parts[2]
-    page = int(parts[3])
-    
-    if user_id not in user_states:
-        user_states[user_id] = {}
-        
-    user_states[user_id]["keyword"] = keyword
-    user_states[user_id]["page"] = page
-    
-    if action == "add":
-        user_states[user_id]["command"] = "edit_add_awaiting_input"
-        await callback_query.message.reply_text("➡️ **নতুন বোতামের কোড দিন (যেমন: Button 04 = link):**")
-    
-    elif action == "delete":
-        user_states[user_id]["command"] = "edit_delete_awaiting_number"
-        await callback_query.message.reply_text("➡️ **ডিলিট করতে চান এমন বোতামের নম্বর দিন (কমা দিয়ে একাধিক নম্বর দিতে পারেন, যেমন: 5, 4, 2 অথবা 1-10):**")
-    
-    elif action == "set":
-        user_states[user_id]["command"] = "edit_set_awaiting_numbers"
-        await callback_query.message.reply_text("➡️ **যে দুটি বোতামের স্থান পরিবর্তন করতে চান তাদের নম্বর দিন (যেমন: 2-3):**")
-
-    save_data()
-    await callback_query.answer()
-
-# এডিট বোতামের পেজিনেশন কলব্যাক হ্যান্ডলার (নতুন)
+# এডিট পেজিনেশন কলব্যাক হ্যান্ডলার (নতুন)
 @app.on_callback_query(filters.regex(r"editpage_([a-zA-Z0-9_]+)_(\d+)"))
-async def pagination_edit_callback(client, callback_query):
+async def edit_pagination_callback(client, callback_query):
     query = callback_query
     await query.answer()
     
@@ -823,53 +789,65 @@ async def pagination_edit_callback(client, callback_query):
     keyword = parts[1]
     page = int(parts[2])
     
-    # Update the user state with the current page
-    user_id = callback_query.from_user.id
-    if user_id in user_states:
-        user_states[user_id]["page"] = page
-        save_data()
+    if keyword not in filters_dict or filters_dict[keyword].get('type') != 'button_filter':
+        return await query.message.edit_text("⚠️ **Filter not found.**")
 
-    if keyword in filters_dict and filters_dict[keyword].get('type') == 'button_filter':
-        filter_data = filters_dict[keyword]
-        reply_text = f"⚙️ **'{keyword}' ফিল্টার এডিট করছেন।**"
-        reply_markup = create_paged_edit_buttons(keyword, filter_data['button_data'], page)
-        try:
-            await query.edit_message_text(reply_text, reply_markup=reply_markup)
-        except MessageNotModified:
-            pass
+    button_list = filters_dict[keyword]['button_data']
+    try:
+        await query.message.edit_reply_markup(reply_markup=create_paged_edit_buttons(keyword, button_list, page))
+    except MessageNotModified:
+        pass
 
-# /channel_id কমান্ড হ্যান্ডলার
-@app.on_message(filters.command("channel_id") & filters.private & filters.user(ADMIN_ID))
-async def channel_id_cmd(client, message):
-    user_id = message.from_user.id
-    user_states[user_id] = {"command": "channel_id_awaiting_message"}
+# এডিট বোতামের জন্য নতুন কলব্যাক হ্যান্ডলার
+@app.on_callback_query(filters.regex(r"edit_add_([a-zA-Z0-9_]+)_(\d+)"))
+async def add_button_callback(client, callback_query):
+    query = callback_query
+    await query.answer()
+    parts = query.data.split('_')
+    keyword = parts[2]
+    page = int(parts[3])
+    user_id = query.from_user.id
+    user_states[user_id] = {"command": "edit_add_awaiting_input", "keyword": keyword, "page": page}
     save_data()
-    await message.reply_text("➡️ **অনুগ্রহ করে একটি চ্যানেল থেকে একটি মেসেজ এখানে ফরওয়ার্ড করুন।**")
-    
-# ফরওয়ার্ড করা মেসেজ হ্যান্ডলার
-@app.on_message(filters.forwarded & filters.private & filters.user(ADMIN_ID))
-async def forwarded_message_handler(client, message):
-    user_id = message.from_user.id
-    if user_id in user_states and user_states[user_id].get("command") == "channel_id_awaiting_message":
-        if message.forward_from_chat:
-            channel_id = message.forward_from_chat.id
-            await message.reply_text(f"✅ **Channel ID:** `{channel_id}`", parse_mode=ParseMode.MARKDOWN)
-        else:
-            await message.reply_text("❌ **এটি একটি চ্যানেল মেসেজ নয়।**")
-        del user_states[user_id]
-        save_data()
+    await query.message.reply_text("➕ **নতুন বোতামের কোড দিন (যেমন: Button Name = link, [Button Only]):**")
 
+@app.on_callback_query(filters.regex(r"edit_delete_([a-zA-Z0-9_]+)_(\d+)"))
+async def delete_button_callback(client, callback_query):
+    query = callback_query
+    await query.answer()
+    parts = query.data.split('_')
+    keyword = parts[2]
+    page = int(parts[3])
+    user_id = query.from_user.id
+    user_states[user_id] = {"command": "edit_delete_awaiting_number", "keyword": keyword, "page": page}
+    save_data()
+    await query.message.reply_text("🗑️ **কোন বোতামগুলো মুছতে চান তার নম্বর দিন (যেমন: 5, 4, 2 অথবা 1-10):**")
 
-# --- Run Services ---
-def run_flask_and_pyrogram():
+@app.on_callback_query(filters.regex(r"edit_set_([a-zA-Z0-9_]+)_(\d+)"))
+async def set_button_callback(client, callback_query):
+    query = callback_query
+    await query.answer()
+    parts = query.data.split('_')
+    keyword = parts[2]
+    page = int(parts[3])
+    user_id = query.from_user.id
+    user_states[user_id] = {"command": "edit_set_awaiting_numbers", "keyword": keyword, "page": page}
+    save_data()
+    await query.message.reply_text("↔️ **কোন দুটি বোতামের স্থান পরিবর্তন করতে চান তাদের নম্বর দিন (যেমন: 2-3):**")
+
+# --- Run Bot and Web Server ---
+async def main():
     connect_to_mongodb()
     load_data()
-    flask_thread = threading.Thread(target=lambda: app_flask.run(host="0.0.0.0", port=PORT, use_reloader=False))
-    flask_thread.start()
-    ping_thread = threading.Thread(target=ping_service)
-    ping_thread.start()
-    print("Starting TA File Share Bot...")
-    app.run()
+    
+    # Run Flask web server in a separate thread
+    threading.Thread(target=lambda: app_flask.run(host='0.0.0.0', port=PORT), daemon=True).start()
+    
+    # Start ping service
+    threading.Thread(target=ping_service, daemon=True).start()
+    
+    # Run the bot
+    await app.run()
 
 if __name__ == "__main__":
-    run_flask_and_pyrogram()
+    asyncio.run(main())
