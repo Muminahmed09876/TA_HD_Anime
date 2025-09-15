@@ -953,9 +953,9 @@ async def edit_pagination_callback(client, callback_query):
     short_id = parts[1]
     page = int(parts[2])
 
-    keyword_to_find = next((k for k, v in filters_dict.items() if get_short_id(k) == short_id), None)
+    keyword_to_find = next((k for k, v in filters_dict.items() if get_short_id(k) == short_id and v.get('type') == 'button_filter'), None)
     
-    if keyword_to_find and keyword_to_find in filters_dict:
+    if keyword_to_find:
         filter_data = filters_dict[keyword_to_find]
         if 'button_data' in filter_data and filter_data['button_data']:
             reply_markup = create_paged_edit_buttons(keyword_to_find, filter_data['button_data'], page)
