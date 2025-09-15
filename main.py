@@ -546,16 +546,12 @@ async def message_handler(client, message):
         filters_dict[keyword]['button_data'].extend(new_buttons)
         save_data()
         
-        # Calculate the new page number to show the added buttons
-        total_buttons = len(filters_dict[keyword]['button_data'])
-        page_size = 10 # Assuming page size is 10
-        new_page = (total_buttons + page_size - 1) // page_size
-        
-        user_states[user_id] = {"command": "edit_button_menu", "keyword": keyword, "page": new_page}
+        # Reset state and show the updated menu
+        user_states[user_id] = {"command": "edit_button_menu", "keyword": keyword, "page": 1}
         save_data()
         
         filter_data = filters_dict[keyword]
-        keyboard = create_paged_edit_buttons(keyword, filter_data['button_data'], new_page)
+        keyboard = create_paged_edit_buttons(keyword, filter_data['button_data'], 1)
         await message.reply_text("✅ **Buttons have been added.**", reply_markup=keyboard)
         
     elif state["command"] == "edit_delete_buttons":
@@ -567,28 +563,17 @@ async def message_handler(client, message):
         input_text = message.text.strip()
         try:
             delete_indices = parse_button_numbers(input_text, len(filters_dict[keyword]['button_data']))
-            
-            # Calculate the new button list after deletion
-            new_button_list = [
+            filters_dict[keyword]['button_data'] = [
                 button for i, button in enumerate(filters_dict[keyword]['button_data']) 
                 if i + 1 not in delete_indices
             ]
-            
-            filters_dict[keyword]['button_data'] = new_button_list
-            
-            # Recalculate the page number to avoid being out of bounds
-            total_buttons = len(new_button_list)
-            page_size = 10 # Assuming page size is 10
-            total_pages = (total_buttons + page_size - 1) // page_size
-            
-            current_page = state.get('page', 1)
-            new_page = min(current_page, total_pages) if total_pages > 0 else 1
-            
-            user_states[user_id] = {"command": "edit_button_menu", "keyword": keyword, "page": new_page}
             save_data()
 
+            user_states[user_id] = {"command": "edit_button_menu", "keyword": keyword, "page": 1}
+            save_data()
+            
             filter_data = filters_dict[keyword]
-            keyboard = create_paged_edit_buttons(keyword, filter_data['button_data'], new_page)
+            keyboard = create_paged_edit_buttons(keyword, filter_data['button_data'], 1)
             await message.reply_text("🗑️ **Buttons have been deleted.**", reply_markup=keyboard)
 
         except ValueError:
@@ -707,15 +692,6 @@ async def message_handler(client, message):
             if name in filters_dict:
                 del filters_dict[name]
                 
-        # Send the files
-        await message.reply_text("✅ **ফাইলগুলি মার্জ করা হচ্ছে।** অনুগ্রহ করে অপেক্ষা করুন...")
-        for file_id in all_file_ids:
-            try:
-                await app.copy_message(CHANNEL_ID, CHANNEL_ID, file_id)
-                await asyncio.sleep(0.5)
-            except Exception as e:
-                print(f"Error copying message {file_id}: {e}")
-        
         await message.reply_text(f"✅ **ফিল্টার সফলভাবে মার্জ হয়েছে!**\n🔗 শেয়ার লিংক: `https://t.me/{(await client.get_me()).username}?start={target_name}`", parse_mode=ParseMode.MARKDOWN)
 
         del user_states[user_id]
@@ -973,9 +949,6 @@ async def edit_pagination_callback(client, callback_query):
     if keyword_to_find and keyword_to_find in filters_dict:
         filter_data = filters_dict[keyword_to_find]
         if 'button_data' in filter_data and filter_data['button_data']:
-            user_id = query.from_user.id
-            user_states[user_id]['page'] = page # Update page in user_states
-            save_data()
             reply_markup = create_paged_edit_buttons(keyword_to_find, filter_data['button_data'], page)
             try:
                 await query.edit_message_reply_markup(reply_markup)
@@ -997,22 +970,19 @@ async def edit_options_callback(client, callback_query):
 
     if not keyword:
         return await query.edit_message_text("❌ **Filter not found.** Please start the process again with /editbutton.")
-    
-    # Store the current page to return to the correct view after the action
-    current_page = user_states[user_id].get('page', 1)
 
     if action == "add":
-        user_states[user_id] = {"command": "edit_add_buttons", "keyword": keyword, "page": current_page}
+        user_states[user_id] = {"command": "edit_add_buttons", "keyword": keyword}
         save_data()
         await query.edit_message_text("➡️ **Please provide new button code (e.g., Button 01 = link1, [Button Name]):**")
     
     elif action == "delete":
-        user_states[user_id] = {"command": "edit_delete_buttons", "keyword": keyword, "page": current_page}
+        user_states[user_id] = {"command": "edit_delete_buttons", "keyword": keyword}
         save_data()
         await query.edit_message_text("➡️ **Please provide the button numbers to delete (e.g., `2, 4, 5, 7-10`):**")
 
     elif action == "set":
-        user_states[user_id] = {"command": "edit_set_buttons", "keyword": keyword, "page": current_page}
+        user_states[user_id] = {"command": "edit_set_buttons", "keyword": keyword}
         save_data()
         await query.edit_message_text("➡️ **Please provide the button pairs to swap (e.g., `1-5, 3-8`):**")
 
