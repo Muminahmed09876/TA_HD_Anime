@@ -355,8 +355,8 @@ async def start_cmd(client, message):
         if user.username:
             log_link_message += f"\nUsername: @{user.username}"
         try:
-        except Exception as e:
             await client.send_message(LOG_CHANNEL_ID, log_link_message, parse_mode=ParseMode.MARKDOWN)
+        except Exception as e:
             print(f"Failed to log deep link message: {e}")
 
     if not await is_user_member(client, user_id):
