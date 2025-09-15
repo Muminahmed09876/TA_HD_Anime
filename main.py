@@ -498,15 +498,24 @@ async def message_handler(client, message):
 
     elif state["command"] == "button_awaiting_buttons":
         keyword = state["keyword"]
-        button_text = message.text.strip()
-        button_data = parse_inline_buttons_from_text(button_text)
         
-        if not button_data:
+        # New logic to handle both comma-separated and newline-separated inputs
+        input_lines = message.text.splitlines()
+        all_button_data = []
+        for line in input_lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # The parse function now handles single lines, even if they contain commas
+            all_button_data.extend(parse_inline_buttons_from_text(line))
+        
+        if not all_button_data:
             return await message.reply_text("❌ **ভুল বোতাম ফরম্যাট।** অনুগ্রহ করে আবার চেষ্টা করুন:")
 
         filters_dict[keyword] = {
             'message_text': "Select a button from the list below:",
-            'button_data': button_data,
+            'button_data': all_button_data,
             'file_ids': [],
             'type': 'button_filter'
         }
