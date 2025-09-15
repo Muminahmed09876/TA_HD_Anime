@@ -403,7 +403,7 @@ async def start_cmd(client, message):
                 try:
                     sent_msg = await app.copy_message(message.chat.id, CHANNEL_ID, file_id, protect_content=restrict_status)
                     sent_message_ids.append(sent_msg.id)
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(0)
                 except FloodWait as e:
                     await asyncio.sleep(e.value)
                     sent_msg = await app.copy_message(message.chat.id, CHANNEL_ID, file_id, protect_content=restrict_status)
@@ -953,7 +953,7 @@ async def edit_pagination_callback(client, callback_query):
     short_id = parts[1]
     page = int(parts[2])
 
-    keyword_to_find = next((k for k, v in filters_dict.items() if v.get('type') == 'button_filter' and get_short_id(k) == short_id), None)
+    keyword_to_find = next((k for k, v in filters_dict.items() if get_short_id(k) == short_id), None)
     
     if keyword_to_find and keyword_to_find in filters_dict:
         filter_data = filters_dict[keyword_to_find]
