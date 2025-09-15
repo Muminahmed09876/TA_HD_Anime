@@ -947,7 +947,7 @@ async def check_join_status_callback(client, callback_query):
         await callback_query.message.edit_text("❌ **You are still not a member.**", reply_markup=keyboard)
 
 # পেজিনেশন কলব্যাক হ্যান্ডলার (পরিবর্তিত)
-@app.on_callback_query(filters.regex(r"page_([a-zA-Z0-9_]+)_(\d+)"))
+@app.on_callback_query(filters.regex(r"page_([\w_]+)_(\d+)"))
 async def pagination_callback(client, callback_query):
     query = callback_query
     await query.answer()
