@@ -69,7 +69,7 @@ app_flask = Flask(__name__)
 @app_flask.route('/')
 def home():
     html_content = """
-    <!DOCTYPE html>
+    <!DOCTYPE:html>
     <html lang="en">
     <head>
         <meta charset="UTF-8">
@@ -423,7 +423,6 @@ async def start_cmd(client, message):
             "🌟 **Welcome, Admin! Here are your commands:**\n\n"
             "**/button** - Start the interactive process to create a button filter.\n"
             "**/editbutton** - Edit an existing button filter.\n"
-            "**/filter_data** - Get the raw button data for a button filter.\n"
             "**/change_filter_name** - Change the name of a saved filter.\n"
             "**/merge_filter** - Merge multiple file filters into one.\n"
             "**/broadcast** - Reply to a message with this command to broadcast it.\n"
@@ -470,16 +469,9 @@ async def merge_filter_cmd(client, message):
     save_data()
     await message.reply_text("➡️ **অনুগ্রহ করে নতুন মার্জ করা ফিল্টারের জন্য একটি নাম দিন:**")
 
-# /filter_data কমান্ড হ্যান্ডলার (NEW)
-@app.on_message(filters.command("filter_data") & filters.private & filters.user(ADMIN_ID))
-async def filter_data_cmd(client, message):
-    user_id = message.from_user.id
-    user_states[user_id] = {"command": "filter_data_awaiting_name"}
-    save_data()
-    await message.reply_text("➡️ **অনুগ্রহ করে যে বোতাম ফিল্টারের ডেটা চান তার নাম দিন:**")
 
 # সাধারণ মেসেজ হ্যান্ডলার (নতুন লজিক সহ)
-@app.on_message(filters.private & filters.user(ADMIN_ID) & filters.text & ~filters.command(["start", "button", "broadcast", "delete", "restrict", "ban", "unban", "auto_delete", "channel_id", "editbutton", "change_filter_name", "merge_filter", "filter_data"]))
+@app.on_message(filters.private & filters.user(ADMIN_ID) & filters.text & ~filters.command(["start", "button", "broadcast", "delete", "restrict", "ban", "unban", "auto_delete", "channel_id", "editbutton", "change_filter_name", "merge_filter"]))
 async def message_handler(client, message):
     user_id = message.from_user.id
     state = user_states.get(user_id)
@@ -498,24 +490,15 @@ async def message_handler(client, message):
 
     elif state["command"] == "button_awaiting_buttons":
         keyword = state["keyword"]
+        button_text = message.text.strip()
+        button_data = parse_inline_buttons_from_text(button_text)
         
-        # New logic to handle both comma-separated and newline-separated inputs
-        input_lines = message.text.splitlines()
-        all_button_data = []
-        for line in input_lines:
-            line = line.strip()
-            if not line:
-                continue
-            
-            # The parse function now handles single lines, even if they contain commas
-            all_button_data.extend(parse_inline_buttons_from_text(line))
-        
-        if not all_button_data:
+        if not button_data:
             return await message.reply_text("❌ **ভুল বোতাম ফরম্যাট।** অনুগ্রহ করে আবার চেষ্টা করুন:")
 
         filters_dict[keyword] = {
             'message_text': "Select a button from the list below:",
-            'button_data': all_button_data,
+            'button_data': button_data,
             'file_ids': [],
             'type': 'button_filter'
         }
@@ -713,31 +696,7 @@ async def message_handler(client, message):
 
         del user_states[user_id]
         save_data()
-    
-    elif state["command"] == "filter_data_awaiting_name":
-        keyword = message.text.lower().strip()
-        if keyword not in filters_dict or filters_dict[keyword].get('type') != 'button_filter':
-            return await message.reply_text("❌ **Filter not found or it is not a button filter.** Please provide a valid button filter name:")
-        
-        filter_data = filters_dict[keyword]['button_data']
-        
-        output_lines = []
-        for button in filter_data:
-            if 'link' in button and button['link']:
-                output_lines.append(f"{button['text']} = {button['link']}")
-            else:
-                output_lines.append(f"[{button['text'].replace('🎬 ', '').replace(' 🎬', '')}]")
-        
-        if not output_lines:
-            return await message.reply_text("❌ **No button data found for this filter.**")
-        
-        response_text = "✅ **Here is the raw button data:**\n\n`" + "\n".join(output_lines) + "`"
-        
-        await message.reply_text(response_text, parse_mode=ParseMode.MARKDOWN)
-        
-        del user_states[user_id]
-        save_data()
-    
+
     elif state["command"] == "channel_id_awaiting_message":
         if message.reply_to_message and message.reply_to_message.forward_from_chat:
             channel_id = message.reply_to_message.forward_from_chat.id
