@@ -56,7 +56,7 @@ CHANNEL_LINK_3 = "https://t.me/+WxpHFf_PExY1NzQ1"
 
 join_channels = [
     {"id": CHANNEL_ID_2, "name": "TA HD Anime Hindi Official Dubbed", "link": CHANNEL_LINK},
-    {"id": CHANNEL_ID_3, "name": "TA Xvideos", "link": CHANNEL_LINK_2}
+    {"id": CHANNEL_ID_3, "name": "TA Xvideos", "link": CHANNEL_LINK_2},
     {"id": CHANNEL_ID_4, "name": "TA Anime", "link": CHANNEL_LINK_3}
 ]
 
