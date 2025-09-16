@@ -44,6 +44,7 @@ banned_users = set()
 restrict_status = False
 autodelete_time = 0
 user_states = {}
+start_message_data = {} # New: Stores the custom start message and buttons
 
 # --- Join Channels Configuration ---
 # ব্যবহারকারীদের বাধ্যতামূলকভাবে জয়েন করতে হবে এমন চ্যানেল
@@ -138,7 +139,7 @@ def connect_to_mongodb():
 
 # ডেটাবেসে ডেটা সংরক্ষণ
 def save_data():
-    global filters_dict, user_list, last_filter, banned_users, restrict_status, autodelete_time, user_states
+    global filters_dict, user_list, last_filter, banned_users, restrict_status, autodelete_time, user_states, start_message_data
     str_user_states = {str(uid): state for uid, state in user_states.items()}
     data = {
         "filters_dict": filters_dict,
@@ -147,14 +148,15 @@ def save_data():
         "banned_users": list(banned_users),
         "restrict_status": restrict_status,
         "autodelete_time": autodelete_time,
-        "user_states": str_user_states
+        "user_states": str_user_states,
+        "start_message_data": start_message_data # New: Save start message data
     }
     collection.update_one({"_id": "bot_data"}, {"$set": data}, upsert=True)
     print("Data saved successfully to MongoDB.")
 
 # ডেটাবেস থেকে ডেটা লোড
 def load_data():
-    global filters_dict, user_list, last_filter, banned_users, restrict_status, autodelete_time, user_states
+    global filters_dict, user_list, last_filter, banned_users, restrict_status, autodelete_time, user_states, start_message_data
     data = collection.find_one({"_id": "bot_data"})
     if data:
         filters_dict = data.get("filters_dict", {})
@@ -165,6 +167,7 @@ def load_data():
         autodelete_time = data.get("autodelete_time", 0)
         loaded_user_states = data.get("user_states", {})
         user_states = {int(uid): state for uid, state in loaded_user_states.items()}
+        start_message_data = data.get("start_message_data", {}) # New: Load start message data
         print("Data loaded successfully from MongoDB.")
     else:
         print("No data found in MongoDB. Starting with empty data.")
@@ -254,6 +257,28 @@ def parse_inline_buttons_from_text(text):
             
     return button_data
 
+# Start message buttons parser (New)
+def parse_start_message_buttons_from_text(text):
+    button_rows = []
+    # Split by ,, for vertical buttons
+    rows = text.split(',,')
+    for row in rows:
+        button_row = []
+        # Split by , for horizontal buttons
+        buttons = row.split(',')
+        for button_pair in buttons:
+            button_pair = button_pair.strip()
+            if not button_pair:
+                continue
+            parts = button_pair.split(' = ', 1)
+            if len(parts) == 2:
+                button_text = parts[0].strip()
+                button_link = parts[1].strip()
+                button_row.append(InlineKeyboardButton(button_text, url=button_link))
+        if button_row:
+            button_rows.append(button_row)
+    return InlineKeyboardMarkup(button_rows)
+
 # Create buttons with pagination for editing (NEW)
 def create_paged_edit_buttons(keyword, button_list, page, page_size=10):
     short_id = get_short_id(keyword)
@@ -307,19 +332,34 @@ def parse_button_numbers(text, max_index):
             
     return sorted(list(numbers))
 
-# Parse swap pairs from a string (e.g., '1-5, 3-8') (NEW)
+# Parse swap pairs from a string (e.g., '1-5, 3-8, 6u-4') (MODIFIED)
 def parse_swap_pairs(text, max_index):
     pairs = []
+    moves = []
     parts = re.split(r',\s*', text)
     for part in parts:
+        part = part.strip()
         if '-' in part:
-            i, j = map(int, part.split('-'))
-            if not (1 <= i <= max_index and 1 <= j <= max_index):
-                raise ValueError(f"Invalid swap numbers {i} or {j}.")
-            pairs.append((i, j))
+            if 'u' in part.lower():
+                try:
+                    i_str, j_str = part.lower().split('u-')
+                    i, j = int(i_str), int(j_str)
+                    if not (1 <= i <= max_index and 1 <= j <= max_index):
+                        raise ValueError(f"Invalid move numbers {i} or {j}.")
+                    moves.append((i, j))
+                except (ValueError, IndexError):
+                    raise ValueError("Invalid single move format. Use `iu-j`.")
+            else:
+                try:
+                    i, j = map(int, part.split('-'))
+                    if not (1 <= i <= max_index and 1 <= j <= max_index):
+                        raise ValueError(f"Invalid swap numbers {i} or {j}.")
+                    pairs.append((i, j))
+                except (ValueError, IndexError):
+                    raise ValueError("Invalid swap format. Use `i-j`.")
         else:
-            raise ValueError("Invalid pair format. Use `i-j`.")
-    return pairs
+            raise ValueError("Invalid pair format. Use `i-j` or `iu-j`.")
+    return pairs, moves
 
 # --- Message Handlers (Pyrogram) ---
 # /start কমান্ড হ্যান্ডলার (পরিবর্তিত)
@@ -429,6 +469,7 @@ async def start_cmd(client, message):
             "**/filter_data** - Get the raw button data for a button filter.\n"
             "**/change_filter_name** - Change the name of a saved filter.\n"
             "**/merge_filter** - Merge multiple file filters into one.\n"
+            "**/start_message** - Manage the custom start message.\n"
             "**/broadcast** - Reply to a message with this command to broadcast it.\n"
             "**/delete <keyword>** - Delete a filter and its associated files.\n"
             "**/restrict** - Toggle message forwarding restriction (ON/OFF).\n"
@@ -439,9 +480,21 @@ async def start_cmd(client, message):
         )
         await message.reply_text(admin_commands, parse_mode=ParseMode.MARKDOWN)
     else:
-        await message.reply_text("👋 **Welcome!** You can access files via special links.")
+        # User is not an admin and no deep link was provided
+        if start_message_data:
+            # Send custom start message with buttons
+            try:
+                text = start_message_data['text']
+                buttons = parse_start_message_buttons_from_text(start_message_data['buttons'])
+                await message.reply_text(text, reply_markup=buttons, parse_mode=ParseMode.MARKDOWN)
+            except Exception as e:
+                print(f"Error sending custom start message: {e}")
+                await message.reply_text("👋 **Welcome!** You can access files via special links.")
+        else:
+            await message.reply_text("👋 **Welcome!** You can access files via special links.")
 
-# /button কমান্ড হ্যান্ডলার
+
+# /button কমান্ড হ্যান্ডলার (New)
 @app.on_message(filters.command("button") & filters.private & filters.user(ADMIN_ID))
 async def button_cmd(client, message):
     user_id = message.from_user.id
@@ -481,8 +534,20 @@ async def filter_data_cmd(client, message):
     save_data()
     await message.reply_text("➡️ **অনুগ্রহ করে যে বোতাম ফিল্টারের ডেটা চান তার নাম দিন:**")
 
+# /start_message কমান্ড হ্যান্ডলার (New)
+@app.on_message(filters.command("start_message") & filters.private & filters.user(ADMIN_ID))
+async def start_message_cmd(client, message):
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("➕ Add Start Message", callback_data="add_start_message")],
+        [InlineKeyboardButton("👀 View Start Message", callback_data="view_start_message")]
+    ])
+    await message.reply_text(
+        "➡️ **Here you can manage the bot's custom start message.**",
+        reply_markup=keyboard
+    )
+
 # সাধারণ মেসেজ হ্যান্ডলার (নতুন লজিক সহ)
-@app.on_message(filters.private & filters.user(ADMIN_ID) & filters.text & ~filters.command(["start", "button", "broadcast", "delete", "restrict", "ban", "unban", "auto_delete", "channel_id", "editbutton", "change_filter_name", "merge_filter", "filter_data"]))
+@app.on_message(filters.private & filters.user(ADMIN_ID) & filters.text & ~filters.command(["start", "button", "broadcast", "delete", "restrict", "ban", "unban", "auto_delete", "channel_id", "editbutton", "change_filter_name", "merge_filter", "filter_data", "start_message"]))
 async def message_handler(client, message):
     user_id = message.from_user.id
     state = user_states.get(user_id)
@@ -591,17 +656,26 @@ async def message_handler(client, message):
             await message.reply_text("❌ **Invalid format.** Please provide numbers separated by commas, or ranges like `7-10`.")
     
     elif state["command"] == "edit_set_buttons":
-        # Handle setting buttons
+        # Handle setting/rearranging buttons
         keyword = state.get("keyword")
         if not keyword or keyword not in filters_dict:
             return await message.reply_text("❌ **Filter not found.** Please start the process again with /editbutton.")
             
         input_text = message.text.strip()
         try:
-            swap_pairs = parse_swap_pairs(input_text, len(filters_dict[keyword]['button_data']))
+            swap_pairs, move_pairs = parse_swap_pairs(input_text, len(filters_dict[keyword]['button_data']))
             button_list = filters_dict[keyword]['button_data']
+            
+            # Perform swaps
             for i, j in swap_pairs:
                 button_list[i-1], button_list[j-1] = button_list[j-1], button_list[i-1]
+            
+            # Perform single moves
+            # Process in reverse order to avoid index issues
+            for i, j in sorted(move_pairs, key=lambda x: x[0], reverse=True):
+                button_to_move = button_list.pop(i - 1)
+                button_list.insert(j - 1, button_to_move)
+
             save_data()
 
             user_states[user_id] = {"command": "edit_button_menu", "keyword": keyword, "page": 1}
@@ -611,8 +685,8 @@ async def message_handler(client, message):
             keyboard = create_paged_edit_buttons(keyword, filter_data['button_data'], 1)
             await message.reply_text("🔄 **Buttons have been rearranged.**", reply_markup=keyboard)
 
-        except ValueError:
-            await message.reply_text("❌ **Invalid format.** Please provide pairs like `1-5, 3-8`.")
+        except ValueError as e:
+            await message.reply_text(f"❌ **Invalid format:** {e}")
     
     elif state["command"] == "change_name_awaiting_old_name":
         old_keyword = message.text.lower().strip()
@@ -731,7 +805,39 @@ async def message_handler(client, message):
         
         del user_states[user_id]
         save_data()
-    
+
+    elif state["command"] == "awaiting_start_message_text":
+        user_states[user_id] = {"command": "awaiting_start_message_buttons", "text": message.text}
+        save_data()
+        await message.reply_text(
+            "➡️ **Now, please provide the button code for the start message.**\n"
+            "**Use `Button = link` for horizontal buttons.**\n"
+            "**Use `Button = link,, Button = link` for vertical buttons.**\n"
+            "**You can also mix them.**\n"
+            "**Or type `skip` to continue without buttons.**"
+        )
+
+    elif state["command"] == "awaiting_start_message_buttons":
+        text = state["text"]
+        buttons_text = message.text.strip()
+        
+        if buttons_text.lower() == "skip":
+            start_message_data['text'] = text
+            start_message_data['buttons'] = ""
+        else:
+            # Check if button parsing is successful
+            try:
+                parse_start_message_buttons_from_text(buttons_text)
+                start_message_data['text'] = text
+                start_message_data['buttons'] = buttons_text
+            except Exception as e:
+                return await message.reply_text(f"❌ **Invalid button format:** {e}\nPlease try again:")
+        
+        save_data()
+        del user_states[user_id]
+        save_data()
+        await message.reply_text("✅ **Start message has been saved successfully!**")
+
     elif state["command"] == "channel_id_awaiting_message":
         if message.reply_to_message and message.reply_to_message.forward_from_chat:
             channel_id = message.reply_to_message.forward_from_chat.id
@@ -1021,8 +1127,56 @@ async def edit_options_callback(client, callback_query):
     elif action == "set":
         user_states[user_id] = {"command": "edit_set_buttons", "keyword": keyword}
         save_data()
-        await query.edit_message_text("➡️ **Please provide the button pairs to swap (e.g., `1-5, 3-8`):**")
+        await query.edit_message_text("➡️ **Please provide the button pairs to swap (e.g., `1-5, 3-8`) or move a single button (e.g., `6u-4`):**")
 
+# Start message callback handlers (New)
+@app.on_callback_query(filters.regex("add_start_message"))
+async def add_start_message_callback(client, callback_query):
+    user_id = callback_query.from_user.id
+    await callback_query.answer()
+    user_states[user_id] = {"command": "awaiting_start_message_text"}
+    save_data()
+    await callback_query.message.edit_text("➡️ **Please send the new start message text.**")
+
+@app.on_callback_query(filters.regex("view_start_message"))
+async def view_start_message_callback(client, callback_query):
+    await callback_query.answer()
+    if not start_message_data:
+        return await callback_query.message.reply_text("❌ **No custom start message has been saved yet.**")
+    
+    text = start_message_data['text']
+    buttons_text = start_message_data['buttons']
+    
+    try:
+        buttons = parse_start_message_buttons_from_text(buttons_text)
+        await callback_query.message.reply_text(
+            f"✅ **Saved Start Message:**\n\n{text}",
+            reply_markup=buttons,
+            parse_mode=ParseMode.MARKDOWN
+        )
+    except Exception as e:
+        await callback_query.message.reply_text(
+            f"❌ **Error viewing message due to button format error:**\n\n{e}\n\n"
+            f"**Text:**\n`{text}`\n\n**Buttons Code:**\n`{buttons_text}`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+    
+    delete_keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🗑️ Delete Start Message", callback_data="delete_start_message")]
+    ])
+    await callback_query.message.reply_text(
+        "**Press the button below to delete the saved start message.**",
+        reply_markup=delete_keyboard
+    )
+    
+@app.on_callback_query(filters.regex("delete_start_message"))
+async def delete_start_message_callback(client, callback_query):
+    global start_message_data
+    await callback_query.answer("Deleting start message...", show_alert=True)
+    start_message_data = {}
+    save_data()
+    await callback_query.edit_message_text("🗑️ **Start message has been successfully deleted.**")
+    
 # /channel_id কমান্ড হ্যান্ডলার
 @app.on_message(filters.command("channel_id") & filters.private & filters.user(ADMIN_ID))
 async def channel_id_cmd(client, message):
@@ -1037,7 +1191,7 @@ async def forwarded_message_handler(client, message):
     user_id = message.from_user.id
     if user_id in user_states and user_states[user_id].get("command") == "channel_id_awaiting_message":
         if message.forward_from_chat:
-            channel_id = message.forward_from_chat.id
+            channel_id = message.forward_to_chat.id if message.forward_to_chat else message.forward_from_chat.id
             await message.reply_text(f"✅ **Channel ID:** `{channel_id}`", parse_mode=ParseMode.MARKDOWN)
         else:
             await message.reply_text("❌ **এটি একটি চ্যানেল মেসেজ নয়।**")
