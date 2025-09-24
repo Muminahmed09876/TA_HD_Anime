@@ -50,8 +50,8 @@ start_message_data = {} # New: Stores the custom start message and buttons
 # ব্যবহারকারীদের বাধ্যতামূলকভাবে জয়েন করতে হবে এমন চ্যানেল
 CHANNEL_ID_2 = -1003049936443
 CHANNEL_LINK = "https://t.me/TA_HD_Anime"
-CHANNEL_ID_3 = -1003097080109
-CHANNEL_LINK_2 = "https://t.me/TA_XVideos"
+CHANNEL_ID_3 = -1002345422475
+CHANNEL_LINK_2 = "https://t.me/TA_Videos_Hot_Videos"
 CHANNEL_ID_4 = -1002518558782
 CHANNEL_LINK_3 = "https://t.me/+WxpHFf_PExY1NzQ1"
 
