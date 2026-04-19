@@ -1237,7 +1237,7 @@ async def auto_delete_cmd(client, message):
         await message.reply_text(f"✅ **অটো-ডিলিট {time_str} তে সেট করা হয়েছে।**")
 
 # জয়েন স্ট্যাটাস চেক করার কলব্যাক
-@app.on_callback_query(filters.regex("check_join_status"))
+@app.on_callback_query(filters.regex(r"^check_join_status$"))
 async def check_join_status_callback(client, callback_query):
     user_id = callback_query.from_user.id
     await callback_query.answer("Checking membership...", show_alert=True)
@@ -1259,7 +1259,7 @@ async def check_join_status_callback(client, callback_query):
         await callback_query.message.edit_text("❌ **You are still not a member.**", reply_markup=keyboard)
 
 # পেজিনেশন কলব্যাক হ্যান্ডলার (সংশোধিত)
-@app.on_callback_query(filters.regex(r"page_([a-zA-Z0-9_]+)_(\d+)"))
+@app.on_callback_query(filters.regex(r"^page_([a-zA-Z0-9_]+)_(\d+)$"))
 async def pagination_callback(client, callback_query):
     query = callback_query
     await query.answer()
@@ -1281,7 +1281,7 @@ async def pagination_callback(client, callback_query):
                 pass
                 
 # New pagination callback handler for editing (NEW)
-@app.on_callback_query(filters.regex(r"editpage_([a-zA-Z0-9]+)_(\d+)"))
+@app.on_callback_query(filters.regex(r"^editpage_([a-zA-Z0-9]+)_(\d+)$"))
 async def edit_pagination_callback(client, callback_query):
     query = callback_query
     await query.answer()
@@ -1303,7 +1303,7 @@ async def edit_pagination_callback(client, callback_query):
                 pass
                 
 # New callback handler for edit file pagination (NEW)
-@app.on_callback_query(filters.regex(r"editfilepage_([a-zA-Z0-9]+)_(\d+)"))
+@app.on_callback_query(filters.regex(r"^editfilepage_([a-zA-Z0-9]+)_(\d+)$"))
 async def edit_file_pagination_callback(client, callback_query):
     query = callback_query
     await query.answer()
@@ -1323,7 +1323,7 @@ async def edit_file_pagination_callback(client, callback_query):
             pass
     
 # New callback handlers for edit options (NEW)
-@app.on_callback_query(filters.regex(r"edit_(add|delete|set)_([a-zA-Z0-9]+)"))
+@app.on_callback_query(filters.regex(r"^edit_(add|delete|set)_([a-zA-Z0-9]+)$"))
 async def edit_options_callback(client, callback_query):
     query = callback_query
     await query.answer()
@@ -1354,7 +1354,7 @@ async def edit_options_callback(client, callback_query):
         await query.edit_message_text("➡️ **Please provide the button pairs to swap (e.g., `1-5, 3-8`) or move a single button (e.g., `6u-4`):**")
 
 # Callbacks for edit file options (NEW)
-@app.on_callback_query(filters.regex(r"editfile_(add|delete|set)_([a-zA-Z0-9]+)"))
+@app.on_callback_query(filters.regex(r"^editfile_(add|delete|set)_([a-zA-Z0-9]+)$"))
 async def edit_file_options_callback(client, callback_query):
     query = callback_query
     await query.answer()
@@ -1385,7 +1385,7 @@ async def edit_file_options_callback(client, callback_query):
         await query.edit_message_text("➡️ **Please provide the file pairs to swap (e.g., `1-5, 3-8`) or move a single file (e.g., `6u-4`):**")
 
 # Callbacks for Global Files Actions (NEW)
-@app.on_callback_query(filters.regex(r"gf_action_(up|down)"))
+@app.on_callback_query(filters.regex(r"^gf_action_(up|down)$"))
 async def gf_add_callback(client, callback_query):
     query = callback_query
     await query.answer()
@@ -1396,7 +1396,7 @@ async def gf_add_callback(client, callback_query):
     save_data()
     await query.edit_message_text(f"➡️ **Please forward messages for {direction.title()} Global Files. Send `ok` when done:**")
 
-@app.on_callback_query(filters.regex(r"gf_del_(up|down)"))
+@app.on_callback_query(filters.regex(r"^gf_del_(up|down)$"))
 async def gf_del_view_callback(client, callback_query):
     direction = callback_query.data.split('_')[2]
     file_list = global_files.get(direction, [])
@@ -1411,7 +1411,7 @@ async def gf_del_view_callback(client, callback_query):
         ])
     await callback_query.edit_message_text(f"**Delete Global Files ({direction.upper()}):**", reply_markup=InlineKeyboardMarkup(keyboard))
     
-@app.on_callback_query(filters.regex(r"gf_rm_(up|down)_(\d+)"))
+@app.on_callback_query(filters.regex(r"^gf_rm_(up|down)_(\d+)$"))
 async def gf_rm_file_callback(client, callback_query):
     parts = callback_query.data.split('_')
     direction = parts[2]
@@ -1438,7 +1438,7 @@ async def gf_rm_file_callback(client, callback_query):
         await callback_query.edit_message_text(f"**Delete Global Files ({direction.upper()}):**", reply_markup=InlineKeyboardMarkup(keyboard))
 
 # Start message callback handlers (New)
-@app.on_callback_query(filters.regex("add_start_message"))
+@app.on_callback_query(filters.regex(r"^add_start_message$"))
 async def add_start_message_callback(client, callback_query):
     user_id = callback_query.from_user.id
     await callback_query.answer()
@@ -1446,7 +1446,7 @@ async def add_start_message_callback(client, callback_query):
     save_data()
     await callback_query.message.edit_text("➡️ **Please send the new start message text.**")
 
-@app.on_callback_query(filters.regex("view_start_message"))
+@app.on_callback_query(filters.regex(r"^view_start_message$"))
 async def view_start_message_callback(client, callback_query):
     await callback_query.answer()
     if not start_message_data:
@@ -1477,7 +1477,7 @@ async def view_start_message_callback(client, callback_query):
         reply_markup=delete_keyboard
     )
     
-@app.on_callback_query(filters.regex("delete_start_message"))
+@app.on_callback_query(filters.regex(r"^delete_start_message$"))
 async def delete_start_message_callback(client, callback_query):
     global start_message_data
     await callback_query.answer("Deleting start message...", show_alert=True)
