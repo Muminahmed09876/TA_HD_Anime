@@ -1588,6 +1588,11 @@ async def gf_rm_file_callback(client, callback_query):
 async def cid_callback(client, callback_query):
     action = callback_query.data.split('_')[1]
     user_id = callback_query.from_user.id
+    
+    if action == "owner":
+        await callback_query.message.edit_text(f"✅ **Admin ID:**\n`{ADMIN_ID}`", parse_mode=ParseMode.MARKDOWN)
+        return
+        
     user_states[user_id] = {"command": f"cid_awaiting_{action}"}
     
     if action == "file":
@@ -1595,8 +1600,6 @@ async def cid_callback(client, callback_query):
         msg = "➡️ **Please forward message(s) from the file store. Send `ok` when done.**"
     elif action == "channel":
         msg = "➡️ **Please forward a message from the Channel or Group.**"
-    else:
-        msg = "➡️ **Please forward a message to get its Owner ID.**"
         
     save_data()
     await callback_query.message.edit_text(msg)
@@ -1660,7 +1663,7 @@ async def send_chan_callback(client, callback_query):
         for file_id in file_ids_to_send:
             try:
                 await app.copy_message(target_chat_id, CHANNEL_ID, file_id, protect_content=restrict_status)
-                await asyncio.sleep(0.5) 
+                await asyncio.sleep(0) 
             except FloodWait as e:
                 await asyncio.sleep(e.value)
                 await app.copy_message(target_chat_id, CHANNEL_ID, file_id, protect_content=restrict_status)
