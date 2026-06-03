@@ -71,7 +71,7 @@ db = None
 collection = None
 
 # --- Flask Web Server ---
-# বটকে সচল রাখার জন্য একটি ছোট ওয়েব সার্ভার
+# @বটকে সচল রাখার জন্য একটি ছোট ওয়েব সার্ভার
 app_flask = Flask(__name__)
 
 @app_flask.route('/')
@@ -1638,7 +1638,7 @@ async def auto_delete_cmd(client, message):
     global autodelete_time
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        return await message.reply_text("📌 **ব্যবহার:** `/auto_delete <সময়>`\nউদাহরণ: `30m`, `1h`, `2h`, `off`")
+        return await message.reply_text("📌 **ব্যবহার:** `/auto_delete <সময়>`\nউদাহরণ: `30m`, `1h`, `2h`, `off`")
         
     time_str = args[1].lower().strip()
     
