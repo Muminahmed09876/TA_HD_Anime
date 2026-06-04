@@ -71,7 +71,7 @@ db = None
 collection = None
 
 # --- Flask Web Server ---
-# @বটকে সচল রাখার জন্য একটি ছোট ওয়েব সার্ভার
+# বটকে সচল রাখার জন্য একটি ছোট ওয়েব সার্ভার
 app_flask = Flask(__name__)
 
 @app_flask.route('/')
@@ -242,7 +242,8 @@ def create_paged_buttons(keyword, button_list, page, page_size=10):
             text += f"**{i}.** [**{button_data['text']}**]({button_data['link']})\n"
         else:
             text += f"**{i}.** **{button_data['text']}**\n"
-        if i < end_index and i < len(button_list):
+            
+        if i < min(end_index, len(button_list)):
             text += "<----->\n"
     
     keyboard = []
@@ -612,20 +613,13 @@ async def send_cmd(client, message):
     keyword = args[1].lower().strip()
     
     if keyword == "letter":
-        if not saved_send_channels:
-            return await message.reply_text("❌ **No channels have been added yet. Use /add_channel first.**")
-            
-        user_states[message.from_user.id] = {"command": "sending_filter_letters", "channels": ["all"]}
-        save_data()
-        
-        keyboard = []
-        for chan in saved_send_channels:
-            keyboard.append([
-                InlineKeyboardButton(chan['name'], callback_data=f"send_letchan_{chan['id']}"),
-                InlineKeyboardButton("✅ Select", callback_data=f"send_letchan_{chan['id']}")
-            ])
-        keyboard.append([InlineKeyboardButton("📢 All Channel Send", callback_data="send_letchan_all")])
-        return await message.reply_text("➡️ **Select channel(s) to send A-Z letter messages:**", reply_markup=InlineKeyboardMarkup(keyboard))
+        for ascii_val in range(65, 91):
+            letter = chr(ascii_val)
+            msg_text = f"<b>Letter = {letter}</b>\n\n"
+            for i in range(1, 21):
+                msg_text += f"<b>{{{i:02d}}}</b> \n\n<b>Season 01</b>\n\n<blockquote expandable><b>Coming Soon...</b></blockquote>\n\n"
+            await message.reply_text(msg_text, parse_mode=ParseMode.HTML)
+        return
 
     if keyword not in filters_dict or not filters_dict[keyword].get('file_ids'):
         return await message.reply_text("❌ **Filter not found or it has no files.**")
@@ -747,6 +741,7 @@ async def message_handler(client, message):
         keyword = message.text.lower().strip()
         if len(keyword) == 1 and keyword.isalpha():
             keyword = f"start_from_letter_{keyword}"
+            
         if keyword in filters_dict:
             return await message.reply_text("⚠️ **এই নামে একটি ফিল্টার ইতিমধ্যে আছে।** অনুগ্রহ করে অন্য একটি নাম দিন:")
 
@@ -790,6 +785,7 @@ async def message_handler(client, message):
         keyword = message.text.lower().strip()
         if len(keyword) == 1 and keyword.isalpha():
             keyword = f"start_from_letter_{keyword}"
+            
         if keyword not in filters_dict or filters_dict[keyword].get('type') != 'button_filter':
             return await message.reply_text("❌ **Filter not found or it is not a button filter.** Please provide a valid button filter name:")
         
@@ -811,7 +807,7 @@ async def message_handler(client, message):
         
         if new_buttons is None:
             return await message.reply_text("❌ **ভুল বোতাম ফরম্যাট বা অবৈধ লিংক।** অনুগ্রহ করে সঠিক URL দিন:")
-            
+        
         filters_dict[keyword]['button_data'].extend(new_buttons)
         save_data()
         
@@ -822,31 +818,32 @@ async def message_handler(client, message):
         filter_data = filters_dict[keyword]
         list_text, keyboard = create_paged_edit_buttons(keyword, filter_data['button_data'], 1)
         await message.reply_text(f"✅ **Buttons have been added.**\n\n**Select an option below:**\n\n{list_text}", reply_markup=keyboard, disable_web_page_preview=True)
-
+        
     elif state["command"] == "edit_delete_buttons":
         # Handle deleting buttons by number
         keyword = state.get("keyword")
         if not keyword or keyword not in filters_dict:
             return await message.reply_text("❌ **Filter not found.** Please start the process again with /editbutton.")
-            
+
         input_text = message.text.strip()
         try:
             delete_indices = parse_button_numbers(input_text, len(filters_dict[keyword]['button_data']))
             filters_dict[keyword]['button_data'] = [
-                button for i, button in enumerate(filters_dict[keyword]['button_data'])
+                button for i, button in enumerate(filters_dict[keyword]['button_data']) 
                 if i + 1 not in delete_indices
             ]
             save_data()
-            
+
             user_states[user_id] = {"command": "edit_button_menu", "keyword": keyword, "page": 1}
             save_data()
             
             filter_data = filters_dict[keyword]
             list_text, keyboard = create_paged_edit_buttons(keyword, filter_data['button_data'], 1)
             await message.reply_text(f"🗑️ **Buttons have been deleted.**\n\n**Select an option below:**\n\n{list_text}", reply_markup=keyboard, disable_web_page_preview=True)
+
         except ValueError:
             await message.reply_text("❌ **Invalid format.** Please provide numbers separated by commas, or ranges like `7-10`.")
-
+    
     elif state["command"] == "edit_set_buttons":
         # Handle setting/rearranging buttons
         keyword = state.get("keyword")
@@ -887,6 +884,7 @@ async def message_handler(client, message):
                         new_list.append(button_list[idx - 1])
                         
                 filters_dict[keyword]['button_data'] = new_list
+                
             else:
                 actions = parse_swap_pairs(input_text, max_index)
                 for action in actions:
@@ -897,7 +895,7 @@ async def message_handler(client, message):
                         i, j = action[1], action[2]
                         button_to_move = button_list.pop(i - 1)
                         button_list.insert(j - 1, button_to_move)
-            
+
             save_data()
             user_states[user_id] = {"command": "edit_button_menu", "keyword": keyword, "page": 1}
             save_data()
@@ -905,9 +903,10 @@ async def message_handler(client, message):
             filter_data = filters_dict[keyword]
             list_text, keyboard = create_paged_edit_buttons(keyword, filter_data['button_data'], 1)
             await message.reply_text(f"🔄 **Buttons have been rearranged.**\n\n**Select an option below:**\n\n{list_text}", reply_markup=keyboard, disable_web_page_preview=True)
+
         except ValueError as e:
             await message.reply_text(f"❌ **Invalid format:** {e}")
-
+            
     elif state["command"] == "edit_file_awaiting_name":
         keyword = message.text.lower().strip()
         if keyword not in filters_dict or filters_dict[keyword].get('type') == 'button_filter':
@@ -919,35 +918,78 @@ async def message_handler(client, message):
         filter_data = filters_dict[keyword]
         list_text, keyboard = create_paged_file_edit_buttons(keyword, filter_data['file_ids'], 1)
         await message.reply_text(f"✅ **You are now editing the files for this filter.**\n\n**Select an option below:**\n\n{list_text}", reply_markup=keyboard)
+        
+    elif state["command"] == "edit_file_awaiting_forwards":
+        keyword = state["keyword"]
+        if message.text and message.text.lower().startswith("[id]"):
+            id_str = message.text[4:].strip()
+            try:
+                new_ids = [int(x.strip()) for x in id_str.split(',') if x.strip().isdigit()]
+                if not new_ids:
+                    return await message.reply_text("❌ **কোনো সঠিক ID পাওয়া যায়নি।**")
+                
+                filters_dict[keyword].setdefault('file_ids', []).extend(new_ids)
+                save_data()
+                
+                user_states[user_id] = {"command": "edit_file_menu", "keyword": keyword, "page": 1}
+                save_data()
+                filter_data = filters_dict[keyword]
+                list_text, keyboard = create_paged_file_edit_buttons(keyword, filter_data['file_ids'], 1)
+                await message.reply_text(f"✅ **{len(new_ids)} Files added using ID.**\n\n**Select an option below:**\n\n{list_text}", reply_markup=keyboard)
+            except ValueError:
+                await message.reply_text("❌ **Invalid ID format. Use [id] 123,456**")
+        elif message.text and message.text.lower() == 'ok':
+            if user_id in temp_files and temp_files[user_id]:
+                filters_dict[keyword].setdefault('file_ids', []).extend(temp_files[user_id])
+                del temp_files[user_id]
+                save_data()
+                
+                user_states[user_id] = {"command": "edit_file_menu", "keyword": keyword, "page": 1}
+                save_data()
+                filter_data = filters_dict[keyword]
+                list_text, keyboard = create_paged_file_edit_buttons(keyword, filter_data['file_ids'], 1)
+                await message.reply_text(f"✅ **Files have been added.**\n\n**Select an option below:**\n\n{list_text}", reply_markup=keyboard)
+            else:
+                await message.reply_text("❌ **No files were forwarded.**")
+        else:
+            try:
+                new_msg = await message.copy(CHANNEL_ID)
+                if user_id not in temp_files:
+                    temp_files[user_id] = []
+                temp_files[user_id].append(new_msg.id)
+                await message.reply_text("✅ **File received. Forward more or send 'ok'.**")
+            except Exception as e:
+                await message.reply_text(f"❌ **Error copying file:** {e}")
 
     elif state["command"] == "edit_file_delete":
         keyword = state.get("keyword")
-        if not keyword or keyword not in filters_dict:
-            return await message.reply_text("❌ **Filter not found.** Please start the process again with /edit_filter.")
-            
         input_text = message.text.strip()
         try:
             delete_indices = parse_button_numbers(input_text, len(filters_dict[keyword]['file_ids']))
-            filters_dict[keyword]['file_ids'] = [
-                fid for i, fid in enumerate(filters_dict[keyword]['file_ids'])
-                if i + 1 not in delete_indices
-            ]
-            save_data()
+            deleted_ids = []
             
-            user_states[user_id] = {"command": "edit_file_menu", "keyword": keyword, "page": 1}
+            for i in delete_indices:
+                deleted_ids.append(filters_dict[keyword]['file_ids'][i-1])
+
+            user_states[user_id] = {
+                "command": "confirm_file_channel_delete",
+                "keyword": keyword,
+                "delete_indices": delete_indices,
+                "deleted_ids": deleted_ids
+            }
             save_data()
-            
-            filter_data = filters_dict[keyword]
-            list_text, keyboard = create_paged_file_edit_buttons(keyword, filter_data['file_ids'], 1)
-            await message.reply_text(f"🗑 hemisphere **Files have been deleted.**\n\n**Select an option below:**\n\n{list_text}", reply_markup=keyboard)
+
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("✅ Yes, delete from Channel too", callback_data="editfile_delchan_yes")],
+                [InlineKeyboardButton("❌ No, just remove from filter", callback_data="editfile_delchan_no")]
+            ])
+            await message.reply_text("❓ **আপনি কি এই ফাইলগুলো File Store Channel থেকেও ডিলিট করতে চান?**", reply_markup=keyboard)
+
         except ValueError:
-            await message.reply_text("❌ **Invalid format.** Please provide numbers separated by commas, or ranges like `1-5`.")
+            await message.reply_text("❌ **Invalid format.** Please provide numbers separated by commas, or ranges like `7-10`.")
 
     elif state["command"] == "edit_file_set":
         keyword = state.get("keyword")
-        if not keyword or keyword not in filters_dict:
-            return await message.reply_text("❌ **Filter not found.** Please start the process again with /edit_filter.")
-            
         input_text = message.text.strip()
         try:
             file_list = filters_dict[keyword]['file_ids']
@@ -982,6 +1024,7 @@ async def message_handler(client, message):
                         new_list.append(file_list[idx - 1])
                         
                 filters_dict[keyword]['file_ids'] = new_list
+                
             else:
                 actions = parse_swap_pairs(input_text, max_index)
                 for action in actions:
@@ -992,7 +1035,7 @@ async def message_handler(client, message):
                         i, j = action[1], action[2]
                         file_to_move = file_list.pop(i - 1)
                         file_list.insert(j - 1, file_to_move)
-            
+
             save_data()
             user_states[user_id] = {"command": "edit_file_menu", "keyword": keyword, "page": 1}
             save_data()
@@ -1000,595 +1043,360 @@ async def message_handler(client, message):
             filter_data = filters_dict[keyword]
             list_text, keyboard = create_paged_file_edit_buttons(keyword, filter_data['file_ids'], 1)
             await message.reply_text(f"🔄 **Files have been rearranged.**\n\n**Select an option below:**\n\n{list_text}", reply_markup=keyboard)
+
         except ValueError as e:
             await message.reply_text(f"❌ **Invalid format:** {e}")
-
-    elif state["command"] == "change_name_awaiting_old_name":
-        old_name = message.text.lower().strip()
-        if old_name not in filters_dict:
-            return await message.reply_text("❌ **Filter not found.** Please enter a valid existing filter name:")
             
-        user_states[user_id] = {"command": "change_name_awaiting_new_name", "old_name": old_name}
+    elif state["command"] in ["gf_awaiting_up", "gf_awaiting_down"]:
+        direction = state["command"].split('_')[-1]
+        if message.text and message.text.lower() == 'ok':
+            if user_id in temp_files and temp_files[user_id]:
+                global_files[direction].extend(temp_files[user_id])
+                del temp_files[user_id]
+                save_data()
+                await message.reply_text(f"✅ **{direction.title()} Global Files saved!**")
+            else:
+                await message.reply_text("❌ **No files were forwarded. Cancelled.**")
+            del user_states[user_id]
+            save_data()
+        else:
+            try:
+                new_msg = await message.copy(CHANNEL_ID)
+                if user_id not in temp_files:
+                    temp_files[user_id] = []
+                temp_files[user_id].append(new_msg.id)
+                await message.reply_text("✅ **File received. Forward more or send 'ok'.**")
+            except Exception as e:
+                await message.reply_text(f"❌ **Error copying file:** {e}")
+    
+    elif state["command"] == "change_name_awaiting_old_name":
+        old_keyword = message.text.lower().strip()
+        if old_keyword not in filters_dict:
+            return await message.reply_text("❌ **Filter not found.** Please provide a valid filter name:")
+        
+        user_states[user_id] = {"command": "change_name_awaiting_new_name", "old_keyword": old_keyword}
         save_data()
-        await message.reply_text(f"➡️ **Now provide the new name for the filter '{old_name}':**")
+        await message.reply_text("➡️ **Now, please provide the new name for the filter.**")
 
     elif state["command"] == "change_name_awaiting_new_name":
-        old_name = state["old_name"]
-        new_name = message.text.lower().strip()
+        old_keyword = state.get("old_keyword")
+        new_keyword = message.text.lower().strip()
+
+        if not old_keyword or old_keyword not in filters_dict:
+            del user_states[user_id]
+            save_data()
+            return await message.reply_text("❌ **Something went wrong. Please start the process again.**")
+
+        if new_keyword in filters_dict:
+            return await message.reply_text("⚠️ **A filter with this new name already exists.** Please provide a different name:")
         
-        if new_name in filters_dict:
-            return await message.reply_text("⚠️ **This name already exists.** Please choose another name:")
-            
-        # Move data to new key
-        filters_dict[new_name] = filters_dict.pop(old_name)
+        # Change the key in the dictionary
+        filters_dict[new_keyword] = filters_dict.pop(old_keyword)
+        
+        # If the last filter was the one being changed, update its name too
+        global last_filter
+        if last_filter == old_keyword:
+            last_filter = new_keyword
+        
         save_data()
-        
-        await message.reply_text(f"✅ **Filter successfully renamed from '{old_name}' to '{new_name}'.**")
+
+        await message.reply_text(f"✅ **The filter '{old_keyword}' has been successfully renamed to '{new_keyword}'.**\n🔗 New share link: `https://t.me/{(await client.get_me()).username}?start={new_keyword}`", parse_mode=ParseMode.MARKDOWN)
+
+        # Clear the user state
         del user_states[user_id]
         save_data()
 
     elif state["command"] == "merge_awaiting_target_name":
         target_name = message.text.lower().strip()
+        
         user_states[user_id] = {"command": "merge_awaiting_source_names", "target_name": target_name}
         save_data()
-        await message.reply_text("➡️ **মার্জ করার জন্য সোর্স ফিল্টার নামগুলো দিন (যেমন: filter1, filter2, filter3):**")
+        await message.reply_text("➡️ **অনুগ্রহ করে যে সব ফিল্টার মার্জ করতে চান সেগুলির নাম দিন (কমা দিয়ে আলাদা করুন, যেমন: filter_01, filter_02):**")
 
     elif state["command"] == "merge_awaiting_source_names":
-        target_name = state["target_name"]
-        source_names = [name.strip().lower() for name in message.text.split(',')]
+        target_name = state.get("target_name")
+        source_names_str = message.text.lower().strip()
+        source_names = [name.strip() for name in source_names_str.split(',')]
+
+        if not target_name:
+            del user_states[user_id]
+            save_data()
+            return await message.reply_text("❌ **কিছু একটা ভুল হয়েছে।** অনুগ্রহ করে আবার /merge_filter কমান্ড দিয়ে শুরু করুন।")
         
-        valid_sources = []
+        # Validate source filters and collect file IDs
+        all_file_ids = []
+        filters_to_delete = []
         for name in source_names:
-            if name in filters_dict:
-                if filters_dict[name].get('type') == 'button_filter':
-                    return await message.reply_text(f"❌ **'{name}' একটি বোতাম ফিল্টার।** মার্জ করার জন্য শুধু ফাইল ফিল্টার ব্যবহার করা যাবে। আবার দিন:")
-                valid_sources.append(name)
-            else:
-                return await message.reply_text(f"❌ **ফিল্টার '{name}' খুঁজে পাওয়া যায়নি।** অনুগ্রহ করে সঠিক নামগুলো আবার দিন:")
+            if name not in filters_dict:
+                return await message.reply_text(f"❌ **ফিল্টার '{name}' পাওয়া যায়নি।** অনুগ্রহ করে সঠিক নাম দিন।")
+            
+            if 'file_ids' in filters_dict[name] and filters_dict[name]['file_ids']:
+                all_file_ids.extend(filters_dict[name]['file_ids'])
+            
+            filters_to_delete.append(name)
         
-        merged_file_ids = []
-        if target_name in filters_dict:
-            merged_file_ids.extend(filters_dict[target_name].get('file_ids', []))
-            
-        for name in valid_sources:
-            merged_file_ids.extend(filters_dict[name].get('file_ids', []))
-            
-        # Remove duplicate file IDs while keeping order
-        seen_files = set()
-        unique_file_ids = []
-        for fid in merged_file_ids:
-            if fid not in seen_files:
-                unique_file_ids.append(fid)
-                seen_files.add(fid)
+        if not all_file_ids:
+            return await message.reply_text("❌ **মার্জ করার জন্য কোনো ফাইল পাওয়া যায়নি।**")
+
+        # Create the new merged filter
+        filters_dict[target_name] = {'message_text': None, 'button_data': [], 'file_ids': all_file_ids}
+        
+        # Send the keyword and pin it
+        try:
+            sent_msg = await app.send_message(CHANNEL_ID, f"#{target_name}\n[Merged Filter (মার্জ করা ফিল্টার)]")
+            await app.pin_chat_message(CHANNEL_ID, sent_msg.id)
+        except Exception as e:
+            await message.reply_text(f"❌ **চ্যানেলে সেভ করতে সমস্যা হয়েছে:** {e}")
+            del filters_dict[target_name] # Rollback
+            save_data()
+            return
+
+        # Delete old filters and their messages from channel
+        for name in filters_to_delete:
+            if name in filters_dict and name != target_name:
+                del filters_dict[name]
                 
-        filters_dict[target_name] = {
-            'file_ids': unique_file_ids,
-            'type': 'file_filter'
-        }
-        
-        save_data()
-        await message.reply_text(f"✅ **সফলভাবে ফাইলগুলো মার্জ করে '{target_name}' ফিল্টারে যুক্ত করা হয়েছে।** মোট ফাইল সংখ্যা: {len(unique_file_ids)}")
+        await message.reply_text(f"✅ **ফিল্টার সফলভাবে মার্জ হয়েছে!**\n🔗 শেয়ার লিংক: `https://t.me/{(await client.get_me()).username}?start={target_name}`", parse_mode=ParseMode.MARKDOWN)
+
         del user_states[user_id]
         save_data()
-
+    
     elif state["command"] == "filter_data_awaiting_name":
         keyword = message.text.lower().strip()
         if keyword not in filters_dict or filters_dict[keyword].get('type') != 'button_filter':
-            return await message.reply_text("❌ **বোতাম ফিল্টারটি পাওয়া যায়নি।** সঠিক নাম আবার দিন:")
-            
-        button_data = filters_dict[keyword]['button_data']
-        data_strings = []
-        for btn in button_data:
-            if btn.get('link') is None:
-                # Format for headers [Name]
-                # Extract clean name from 🎬 name 🎬
-                clean_text = btn['text'].replace("🎬", "").strip()
-                data_strings.append(f"[{clean_text}]")
+            return await message.reply_text("❌ **Filter not found or it is not a button filter.** Please provide a valid button filter name:")
+        
+        filter_data = filters_dict[keyword]['button_data']
+        
+        output_lines = []
+        for button in filter_data:
+            if 'link' in button and button['link']:
+                output_lines.append(f"{button['text']} = {button['link']}")
             else:
-                data_strings.append(f"{btn['text']} = {btn['link']}")
-                
-        raw_data_text = ", ".join(data_strings)
-        await message.reply_text(f"📋 **Raw data for '{keyword}':**\n\n`{raw_data_text}`")
+                output_lines.append(f"[{button['text'].replace('🎬 ', '').replace(' 🎬', '')}]")
+        
+        if not output_lines:
+            return await message.reply_text("❌ **No button data found for this filter.**")
+        
+        response_text = "✅ **Here is the raw button data:**\n\n`" + "\n".join(output_lines) + "`"
+        
+        await message.reply_text(response_text, parse_mode=ParseMode.MARKDOWN)
+        
         del user_states[user_id]
         save_data()
 
     elif state["command"] == "awaiting_start_message_text":
-        start_message_text = message.text.strip()
-        user_states[user_id] = {"command": "awaiting_start_message_buttons", "start_text": start_message_text}
+        user_states[user_id] = {"command": "awaiting_start_message_buttons", "text": message.text}
         save_data()
-        await message.reply_text("➡️ **Now provide buttons for the start message (Format: Name = link, Name2 = link2 ,, Name3 = link3):**")
+        await message.reply_text(
+            "➡️ **Now, please provide the button code for the start message.**\n"
+            "**Use `Button = link` for horizontal buttons.**\n"
+            "**Use `Button = link,, Button = link` for vertical buttons.**\n"
+            "**You can also mix them.**\n"
+            "**Or type `skip` to continue without buttons.**"
+        )
 
     elif state["command"] == "awaiting_start_message_buttons":
-        start_text = state["start_text"]
+        text = state["text"]
         buttons_text = message.text.strip()
         
-        # Test if it parses correctly
-        try:
-            parse_start_message_buttons_from_text(buttons_text)
-        except Exception:
-            return await message.reply_text("❌ **Invalid buttons format.** Please check your layout and try again:")
-            
-        start_message_data = {
-            "text": start_text,
-            "buttons": buttons_text
-        }
-        save_data()
-        await message.reply_text("✅ **Custom start message has been saved successfully.**")
-        del user_states[user_id]
-        save_data()
-
-    elif state["command"] == "awaiting_schannel_id":
-        try:
-            chan_id = int(message.text.strip())
-            chat = await app.get_chat(chan_id)
-            
-            # Check for duplicates
-            if any(c['id'] == chan_id for c in saved_send_channels):
-                return await message.reply_text("⚠️ **This channel has already been added.**")
-                
-            saved_send_channels.append({"id": chan_id, "name": chat.title})
-            save_data()
-            await message.reply_text(f"✅ **Channel '{chat.title}' added successfully!**")
-            del user_states[user_id]
-            save_data()
-        except Exception as e:
-            await message.reply_text(f"❌ **Invalid Channel ID or Bot is not admin in that channel.** Error: {e}\n\nPlease try again:")
-
-    elif state["command"] == "edit_file_add":
-        # Interactive File adding state
-        keyword = state.get("keyword")
-        if not keyword or keyword not in filters_dict:
-            return await message.reply_text("❌ **Filter session expired.**")
-            
-        # Standard file uploading triggers copy to channel logic
-        # We don't interfere with the forward handler, but we instruct the user
-        await message.reply_text("➡️ **Please forward or send files now. When done, type /done to exit adding files.**")
-        # Change state command to accept forwarded messages
-        user_states[user_id]["command"] = "edit_file_adding_active"
-        save_data()
-
-    # --- File/Forward Receiver Mode for Filter Creation ---
-    if state["command"] == "awaiting_files" or state["command"] == "edit_file_adding_active":
-        # Check if user typed /done to complete standard file add session
-        if message.text and message.text.strip() == "/done":
-            keyword = state["keyword"]
-            del user_states[user_id]
-            save_data()
-            return await message.reply_text(f"✅ **File collection complete for filter '{keyword}'.** Session closed.")
-
-        file_id = None
-        if message.document:
-            file_id = message.document.file_id
-        elif message.video:
-            file_id = message.video.file_id
-        elif message.audio:
-            file_id = message.audio.file_id
-        elif message.photo:
-            file_id = message.photo[-1].file_id
-        
-        if not file_id:
-            # If active adding files, don't throw an error for normal texts, just ignore unless it's /done
-            if state["command"] == "edit_file_adding_active":
-                return
-            return await message.reply_text("❌ **অনুগ্রহ করে একটি ফাইল অথবা মিডিয়া ফরওয়ার্ড করুন।**")
-            
-        # Copy file to storage channel
-        try:
-            stored_msg = await app.copy_message(CHANNEL_ID, message.chat.id, message.id)
-            keyword = state["keyword"]
-            
-            if state["command"] == "awaiting_files":
-                if keyword not in filters_dict:
-                    filters_dict[keyword] = {'file_ids': [], 'type': 'file_filter'}
-                filters_dict[keyword]['file_ids'].append(stored_msg.id)
-                last_filter = keyword
-                save_data()
-                await message.reply_text(f"✅ ফাইল যুক্ত হয়েছে! এই ফিল্টারে আরও ফাইল দিতে থাকুন। শেষ হলে `/done` লিখুন।")
-            elif state["command"] == "edit_file_adding_active":
-                filters_dict[keyword]['file_ids'].append(stored_msg.id)
-                save_data()
-                await message.reply_text(f"✅ New File added to '{keyword}' filter! Type /done to finalize.")
-        except Exception as e:
-            await message.reply_text(f"❌ **ফাইলটি সংরক্ষণ করতে সমস্যা হয়েছে:** {e}")
-
-    elif state["command"] in ["gf_awaiting_up", "gf_awaiting_down"]:
-        file_id = None
-        if message.document:
-            file_id = message.document.file_id
-        elif message.video:
-            file_id = message.video.file_id
-        elif message.audio:
-            file_id = message.audio.file_id
-        elif message.photo:
-            file_id = message.photo[-1].file_id
-            
-        if message.text and message.text.strip() == "/done":
-            action_type = "Up" if state["command"] == "gf_awaiting_up" else "Down"
-            del user_states[user_id]
-            save_data()
-            return await message.reply_text(f"✅ **Global {action_type} file accumulation closed.**")
-
-        if not file_id:
-            return await message.reply_text("❌ **Please forward/send a file or write /done to finish.**")
-
-        try:
-            stored_msg = await app.copy_message(CHANNEL_ID, message.chat.id, message.id)
-            key = "up" if state["command"] == "gf_awaiting_up" else "down"
-            if key not in global_files:
-                global_files[key] = []
-            global_files[key].append(stored_msg.id)
-            save_data()
-            await message.reply_text(f"✅ Global File recorded! Add more or type /done.")
-        except Exception as e:
-            await message.reply_text(f"❌ **Error storing global file:** {e}")
-
-
-# --- Callback Query Handlers (Pyrogram) ---
-@app.on_callback_query()
-async def callback_handler(client, callback_query):
-    user_id = callback_query.from_user.id
-    data = callback_query.data
-    
-    # Ignore callbacks
-    if data == "ignore":
-        await callback_query.answer()
-        return
-
-    # Public Navigation for Button Filters
-    if data.startswith("page_"):
-        parts = data.split('_', 2)
-        keyword = parts[1]
-        page = int(parts[2])
-        
-        if keyword in filters_dict:
-            filter_data = filters_dict[keyword]
-            reply_text = filter_data.get('message_text', "Select an option:")
-            list_text, reply_markup = create_paged_buttons(keyword, filter_data['button_data'], page)
-            try:
-                await callback_query.message.edit_text(f"{reply_text}\n\n{list_text}", reply_markup=reply_markup, disable_web_page_preview=True)
-            except MessageNotModified:
-                pass
-        await callback_query.answer()
-        return
-
-    # Admin Power Configurations Callback Toggles
-    if data.startswith("ap_toggle_") and user_id == ADMIN_ID:
-        action = data.split('_', 2)[2]
-        if action == "filter_msg":
-            admin_powers['filter_message'] = not admin_powers.get('filter_message', True)
-        elif action == "auto_del":
-            admin_powers['auto_delete'] = not admin_powers.get('auto_delete', True)
-        elif action == "restrict":
-            admin_powers['admin_restrict'] = not admin_powers.get('admin_restrict', False)
-        save_data()
-        try:
-            await callback_query.message.edit_reply_markup(reply_markup=get_admin_power_keyboard())
-        except MessageNotModified:
-            pass
-        await callback_query.answer("Settings updated.")
-        return
-
-    # Admin Channel Add Callback
-    if data == "add_schannel" and user_id == ADMIN_ID:
-        user_states[user_id] = {"command": "awaiting_schannel_id"}
-        save_data()
-        await callback_query.message.reply_text("➡️ **Please send the unique numerical ID of the Telegram channel:**")
-        await callback_query.answer()
-        return
-        
-    # Admin Channel Delete Callback
-    if data.startswith("del_schannel_") and user_id == ADMIN_ID:
-        chan_id = int(data.split('_', 2)[2])
-        global saved_send_channels
-        saved_send_channels = [c for c in saved_send_channels if c['id'] != chan_id]
-        save_data()
-        
-        # Rebuild keyboard
-        keyboard = []
-        for chan in saved_send_channels:
-            keyboard.append([
-                InlineKeyboardButton(chan['name'], callback_data="ignore"),
-                InlineKeyboardButton("🗑️ Delete", callback_data=f"del_schannel_{chan['id']}")
-            ])
-        keyboard.append([InlineKeyboardButton("➕ Add Channel", callback_data="add_schannel")])
-        try:
-            await callback_query.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(keyboard))
-        except MessageNotModified:
-            pass
-        await callback_query.answer("Channel removed.")
-        return
-
-    # Admin /send Callback Action Execution
-    if data.startswith("send_chan_") and user_id == ADMIN_ID:
-        target = data.split('_', 2)[2]
-        state = user_states.get(user_id)
-        if not state or state["command"] != "sending_filter":
-            return await callback_query.answer("❌ Session expired.", show_alert=True)
-            
-        keyword = state["keyword"]
-        file_ids = filters_dict[keyword]['file_ids']
-        
-        channels_to_send = []
-        if target == "all":
-            channels_to_send = saved_send_channels
+        if buttons_text.lower() == "skip":
+            start_message_data['text'] = text
+            start_message_data['buttons'] = ""
         else:
-            chan_id = int(target)
-            channels_to_send = [c for c in saved_send_channels if c['id'] == chan_id]
-            
-        await callback_query.answer("🚀 Sending files to channel(s)...")
-        
-        success_count = 0
-        for chan in channels_to_send:
-            for fid in file_ids:
-                try:
-                    await app.copy_message(chan['id'], CHANNEL_ID, fid)
-                    success_count += 1
-                    await asyncio.sleep(0.5)
-                except FloodWait as e:
-                    await asyncio.sleep(e.value)
-                    await app.copy_message(chan['id'], CHANNEL_ID, fid)
-                    success_count += 1
-                except Exception as e:
-                    print(f"Error executing /send copying: {e}")
-                    
-        await callback_query.message.reply_text(f"✅ **Successfully forwarded {success_count} files to target destination channel(s).**")
-        del user_states[user_id]
-        save_data()
-        return
-
-    if data.startswith("send_letchan_") and user_id == ADMIN_ID:
-        target = data.split('_', 3)[2]
-        state = user_states.get(user_id)
-        if not state or state["command"] != "sending_filter_letters":
-            return await callback_query.answer("❌ Session expired.", show_alert=True)
-            
-        channels_to_send = []
-        if target == "all":
-            channels_to_send = saved_send_channels
-        else:
-            chan_id = int(target)
-            channels_to_send = [c for c in saved_send_channels if c['id'] == chan_id]
-            
-        await callback_query.answer("🚀 A-Z Letter messages পাঠাচ্ছি...")
-        
-        import string
-        letters = list(string.ascii_uppercase)
-        
-        for chan in channels_to_send:
-            for letter in letters:
-                quotes = []
-                for num in range(1, 21):
-                    num_str = f"{num:02d}"
-                    quote_text = f"**{{{num_str}}}** \n\n**Season 01**\n\n\n**Coming Soon...**"
-                    quotes.append(quote_text)
-                
-                joined_quotes = "\n\n".join(quotes)
-                msg_body = f"**Letter = {letter}**\n\n{joined_quotes}"
-                
-                try:
-                    await app.send_message(chan['id'], msg_body, parse_mode=ParseMode.MARKDOWN)
-                    await asyncio.sleep(0.5)
-                except FloodWait as e:
-                    await asyncio.sleep(e.value)
-                    await app.send_message(chan['id'], msg_body, parse_mode=ParseMode.MARKDOWN)
-                except Exception as e:
-                    print(f"Error sending letter message: {e}")
-                    
-        await callback_query.message.reply_text("✅ **২৬টি Letter মেসেজ সফলভাবে পাঠানো হয়েছে!**")
-        del user_states[user_id]
-        save_data()
-        return
-
-    # Admin Button Edit Navigation Callbacks
-    if data.startswith("editpage_") and user_id == ADMIN_ID:
-        short_id = data.split('_')[1]
-        page = int(data.split('_')[2])
-        
-        # Find keyword by short_id
-        keyword = None
-        for k in filters_dict.keys():
-            if get_short_id(k) == short_id:
-                keyword = k
-                break
-                
-        if keyword:
-            filter_data = filters_dict[keyword]
-            list_text, keyboard = create_paged_edit_buttons(keyword, filter_data['button_data'], page)
-            user_states[user_id]["page"] = page
-            save_data()
+            # Check if button parsing is successful
             try:
-                await callback_query.message.edit_text(f"✅ **You are now editing the buttons for this filter.**\n\n**Select an option below:**\n\n{list_text}", reply_markup=keyboard, disable_web_page_preview=True)
-            except MessageNotModified:
-                pass
-        await callback_query.answer()
-        return
-
-    # Admin Button List Modifier Callbacks (Add/Delete/Set)
-    if (data.startswith("edit_add_") or data.startswith("edit_delete_") or data.startswith("edit_set_")) and user_id == ADMIN_ID:
-        action = "add" if "_add_" in data else "delete" if "_delete_" in data else "set"
-        short_id = data.split('_')[-1]
-        
-        keyword = None
-        for k in filters_dict.keys():
-            if get_short_id(k) == short_id:
-                keyword = k
-                break
-                
-        if not keyword:
-            return await callback_query.answer("Filter not found.", show_alert=True)
-            
-        if action == "add":
-            user_states[user_id] = {"command": "edit_add_buttons", "keyword": keyword}
-            save_data()
-            await callback_query.message.reply_text("➡️ **অনুগ্রহ করে যে বোতামগুলো যুক্ত করতে চান তা দিন (Format: Button = Link):**")
-        elif action == "delete":
-            user_states[user_id] = {"command": "edit_delete_buttons", "keyword": keyword}
-            save_data()
-            await callback_query.message.reply_text("➡️ **অনুগ্রহ করে ডিলিট করার জন্য বোতাম নম্বরের ইনপুট দিন (যেমন: 2, 4, 5, 7-10):**")
-        elif action == "set":
-            user_states[user_id] = {"command": "edit_set_buttons", "keyword": keyword}
-            save_data()
-            await callback_query.message.reply_text("➡️ **Rearrange buttons using swap/move rules:**\n\n• `1-5, 3-8` - Swaps items.\n• `6u-2` - Moves item 6 to index 2 position.\n• `a 5,1,3,2` - Absolute order starting index lineup.")
-            
-        await callback_query.answer()
-        return
-
-    # Admin File Edit Navigation Callbacks
-    if data.startswith("editfilepage_") and user_id == ADMIN_ID:
-        short_id = data.split('_')[1]
-        page = int(data.split('_')[2])
-        
-        keyword = None
-        for k in filters_dict.keys():
-            if get_short_id(k) == short_id:
-                keyword = k
-                break
-                
-        if keyword:
-            filter_data = filters_dict[keyword]
-            list_text, keyboard = create_paged_file_edit_buttons(keyword, filter_data['file_ids'], page)
-            user_states[user_id]["page"] = page
-            save_data()
-            try:
-                await callback_query.message.edit_text(f"✅ **You are now editing the files for this filter.**\n\n**Select an option below:**\n\n{list_text}", reply_markup=keyboard)
-            except MessageNotModified:
-                pass
-        await callback_query.answer()
-        return
-
-    # Admin File Modifier Action triggers
-    if (data.startswith("editfile_add_") or data.startswith("editfile_delete_") or data.startswith("editfile_set_")) and user_id == ADMIN_ID:
-        action = "add" if "_add_" in data else "delete" if "_delete_" in data else "set"
-        short_id = data.split('_')[-1]
-        
-        keyword = None
-        for k in filters_dict.keys():
-            if get_short_id(k) == short_id:
-                keyword = k
-                break
-                
-        if not keyword:
-            return await callback_query.answer("Filter context lost.", show_alert=True)
-            
-        if action == "add":
-            user_states[user_id] = {"command": "edit_file_add", "keyword": keyword}
-            save_data()
-            await callback_query.message.reply_text("➡️ **Forward files to add now. Type /done when completely finished.**")
-        elif action == "delete":
-            user_states[user_id] = {"command": "edit_file_delete", "keyword": keyword}
-            save_data()
-            await callback_query.message.reply_text("➡️ **Provide numerical file indices to clear out (e.g., 1,3, 5-9):**")
-        elif action == "set":
-            user_states[user_id] = {"command": "edit_file_set", "keyword": keyword}
-            save_data()
-            await callback_query.message.reply_text("➡️ **Provide ordering layout for files (e.g., `1-4`, `5u-1` or `a 3,2,1`):**")
-            
-        await callback_query.answer()
-        return
-
-    # Global Files Action Callbacks
-    if data.startswith("gf_action_") and user_id == ADMIN_ID:
-        target = data.split('_')[-1]
-        cmd = "gf_awaiting_up" if target == "up" else "gf_awaiting_down"
-        user_states[user_id] = {"command": cmd}
-        save_data()
-        await callback_query.message.reply_text(f"➡️ **Forward/Send files to add as Global {target.upper()}. Enter /done to save and close context.**")
-        await callback_query.answer()
-        return
-        
-    if data.startswith("gf_del_") and user_id == ADMIN_ID:
-        target = data.split('_')[-1]
-        if target in global_files:
-            global_files[target] = []
-            save_data()
-            await callback_query.message.reply_text(f"🗑️ **Global {target.upper()} records completely flushed.**")
-        await callback_query.answer()
-        return
-
-    # Custom Start Message callbacks
-    if data == "add_start_message" and user_id == ADMIN_ID:
-        user_states[user_id] = {"command": "awaiting_start_message_text"}
-        save_data()
-        await callback_query.message.reply_text("➡️ **Please send the main markdown text layout body of your custom start welcome message:**")
-        await callback_query.answer()
-        return
-        
-    if data == "view_start_message" and user_id == ADMIN_ID:
-        if start_message_data:
-            try:
-                t = start_message_data['text']
-                b = parse_start_message_buttons_from_text(start_message_data['buttons'])
-                # Send sample inline validation replica
-                await callback_query.message.reply_text(f"📝 **Current Custom Start message Configuration Preview:**\n\n{t}", reply_markup=b, parse_mode=ParseMode.MARKDOWN)
-                
-                # Append delete inline shortcut operational option button
-                del_kb = InlineKeyboardMarkup([[InlineKeyboardButton("🗑️ Delete Start Message", callback_data="delete_start_message")]])
-                await callback_query.message.reply_text("⚙️ **Actions:**", reply_markup=del_kb)
+                parse_start_message_buttons_from_text(buttons_text)
+                start_message_data['text'] = text
+                start_message_data['buttons'] = buttons_text
             except Exception as e:
-                await callback_query.message.reply_text(f"❌ Preview generation failure: {e}")
-        else:
-            await callback_query.message.reply_text("❌ **No custom welcome start message layout active.**")
-        await callback_query.answer()
-        return
-
-    if data == "delete_start_message" and user_id == ADMIN_ID:
-        global start_message_data
-        start_message_data = {}
+                return await message.reply_text(f"❌ **Invalid button format:** {e}\nPlease try again:")
+        
         save_data()
-        await callback_query.message.edit_text("🗑️ **Start message configuration cleared successfully.**")
-        await callback_query.answer()
+        del user_states[user_id]
+        save_data()
+        await message.reply_text("✅ **Start message has been saved successfully!**")
+
+    # --- New Channel ID Logic starts here ---
+    elif state["command"] == "cid_awaiting_channel":
+        if message.forward_from_chat:
+            channel_id = message.forward_from_chat.id
+            await message.reply_text(f"✅ **Channel and Group ID:**\n`{channel_id}`", parse_mode=ParseMode.MARKDOWN)
+        else:
+            await message.reply_text("❌ **এটি কোনো চ্যানেল বা গ্রুপ থেকে ফরওয়ার্ড করা হয়নি।**")
+        del user_states[user_id]
+        save_data()
+        
+    elif state["command"] == "cid_awaiting_owner":
+        if message.forward_from:
+            owner_id = message.forward_from.id
+            await message.reply_text(f"✅ **Owner ID:**\n`{owner_id}`", parse_mode=ParseMode.MARKDOWN)
+        else:
+            await message.reply_text("❌ **Owner ID পাওয়া যায়নি। (Privacy settings এর কারণে হতে পারে)**")
+        del user_states[user_id]
+        save_data()
+        
+    elif state["command"] == "cid_awaiting_file":
+        if message.text and message.text.lower() == 'ok':
+            ids = temp_files.get(user_id, [])
+            if ids:
+                ids.sort() # ছোট থেকে বড় সাজানো
+                id_str = ",".join(map(str, ids))
+                await message.reply_text(f"✅ **File IDs:**\n`{id_str}`", parse_mode=ParseMode.MARKDOWN)
+            else:
+                await message.reply_text("❌ **No files forwarded.**")
+            
+            if user_id in temp_files:
+                del temp_files[user_id]
+            del user_states[user_id]
+            save_data()
+        else:
+            # চ্যানেল থেকে ফরওয়ার্ড করা মেসেজের অরিজিনাল আইডি নেওয়ার চেষ্টা করবে, না পেলে নতুন মেসেজ আইডি সেভ করবে
+            file_id = message.forward_from_message_id if message.forward_from_message_id else message.id
+            if user_id not in temp_files:
+                temp_files[user_id] = []
+            temp_files[user_id].append(file_id)
+            await message.reply_text("✅ **File received. Forward more or send 'ok'.**")
+            
+    # New condition for awaiting_forward_schannel for /add_channel
+    elif state["command"] == "awaiting_forward_schannel":
+        if message.forward_from_chat and message.forward_from_chat.type in [ChatType.CHANNEL, ChatType.GROUP, ChatType.SUPERGROUP]:
+            chan_id = message.forward_from_chat.id
+            chan_name = message.forward_from_chat.title
+            
+            if not any(c['id'] == chan_id for c in saved_send_channels):
+                saved_send_channels.append({'id': chan_id, 'name': chan_name})
+                save_data()
+                await message.reply_text(f"✅ **Channel '{chan_name}' added successfully!**")
+            else:
+                await message.reply_text("⚠️ **Channel is already added in the list.**")
+        else:
+            await message.reply_text("❌ **Please forward a message from a valid channel or group.**")
+            
+        del user_states[user_id]
+        save_data()
+
+
+# রিপ্লাই মেসেজ হ্যান্ডলার (নতুন লজিক সহ)
+@app.on_message(filters.private & filters.user(ADMIN_ID) & filters.reply)
+async def reply_handler(client, message):
+    if message.command and message.command[0] == "broadcast" and message.reply_to_message:
+        await broadcast_cmd(client, message)
+
+
+# চ্যানেল মেসেজ হ্যান্ডলার (শুধুমাত্র ফাইল ফিল্টার তৈরির জন্য)
+@app.on_message(filters.channel & filters.chat(CHANNEL_ID))
+async def channel_content_handler(client, message):
+    global last_filter
+    
+    if message.text and len(message.text.split()) == 1:
+        keyword = message.text.lower().replace('#', '')
+        if not keyword:
+            return
+        
+        if keyword in filters_dict and filters_dict[keyword].get('type') == 'button_filter':
+            await app.send_message(LOG_CHANNEL_ID, f"⚠️ **Filter '{keyword}' is a button filter. Files cannot be added to it.**")
+            return
+            
+        last_filter = keyword
+        if keyword not in filters_dict:
+            filters_dict[keyword] = {'message_text': None, 'button_data': [], 'file_ids': []}
+            msg_text = f"✅ **নতুন ফাইল ফিল্টার তৈরি হয়েছে!**\n🔗 শেয়ার লিংক: `https://t.me/{(await app.get_me()).username}?start={keyword}`"
+            await app.send_message(LOG_CHANNEL_ID, msg_text, parse_mode=ParseMode.MARKDOWN)
+            try:
+                await app.send_message(ADMIN_ID, msg_text, parse_mode=ParseMode.MARKDOWN)
+            except Exception:
+                pass
+        else:
+            await app.send_message(LOG_CHANNEL_ID, f"⚠️ **ফিল্টার '{keyword}' ইতিমধ্যে বিদ্যমান।**")
+        save_data()
         return
 
-    # Channel ID retrieval internal navigation helpers
-    if data.startswith("cid_") and user_id == ADMIN_ID:
-        target = data.split('_')[1]
-        if target == "channel":
-            await callback_query.message.reply_text("ℹ️ **To fetch Channel/Group numerical Chat ID:** Forward any message natively from that target channel into this chat.")
-        elif target == "file":
-            await callback_query.message.reply_text("ℹ️ **To retrieve raw file id identifiers:** Send or forward any document type right inside this session context.")
-        elif target == "owner":
-            await callback_query.message.reply_text(f"ℹ️ **Your numerical context ID:** `{user_id}`")
-        await callback_query.answer()
-        return
+    if message.media and last_filter:
+        if last_filter in filters_dict and filters_dict[last_filter].get('type') != 'button_filter':
+            if 'file_ids' not in filters_dict[last_filter]:
+                filters_dict[last_filter]['file_ids'] = []
+            filters_dict[last_filter]['file_ids'].append(message.id)
+            save_data()
+        else:
+            await app.send_message(LOG_CHANNEL_ID, "⚠️ **কোনো সক্রিয় ফাইল ফিল্টার পাওয়া যায়নি বা এটি একটি বোতাম ফিল্টার।**")
 
-# /broadcast কমান্ড হ্যান্ডলার (পরিবর্তিত)
+# চ্যানেল থেকে মেসেজ ডিলিট করার হ্যান্ডলার
+@app.on_deleted_messages(filters.channel & filters.chat(CHANNEL_ID))
+async def channel_delete_handler(client, messages):
+    global last_filter
+    for message in messages:
+        if message.text:
+            keyword = message.text.lower().replace('#', '').strip()
+            if keyword in filters_dict:
+                del filters_dict[keyword]
+                if keyword == last_filter:
+                    last_filter = None
+                
+                save_data()
+                await app.send_message(LOG_CHANNEL_ID, f"🗑️ **ফিল্টার '{keyword}' সফলভাবে মুছে ফেলা হয়েছে।**")
+            elif last_filter == keyword:
+                last_filter = None
+                await app.send_message(LOG_CHANNEL_ID, "📝 **দ্রষ্টব্য:** শেষ সক্রিয় ফিল্টারটি মুছে ফেলা হয়েছে।")
+                save_data()
+
+# --- Auto-delete Pin Message ---
+@app.on_message(filters.service & filters.chat(CHANNEL_ID))
+async def service_message_handler(client, message):
+    if message.pinned_message:
+        try:
+            await asyncio.sleep(5)
+            await app.delete_messages(CHANNEL_ID, message.id)
+            print(f"Successfully deleted pin service message {message.id}.")
+        except Exception as e:
+            print(f"Error deleting pin service message {message.id}: {e}")
+
+# /broadcast কমান্ড হ্যান্ডলার
 @app.on_message(filters.command("broadcast") & filters.private & filters.user(ADMIN_ID))
 async def broadcast_cmd(client, message):
     if not message.reply_to_message:
-        return await message.reply_text("❌ **অনুগ্রহ করে যে মেসেজটি ব্রডকাস্ট করতে চান সেটি রিপ্লাই করে এই কমান্ডটি দিন।**")
-    
-    msg = await message.reply_text("🚀 **ব্রডকাস্ট শুরু হচ্ছে...**")
-    success = 0
-    failed = 0
-    
-    for u_id in list(user_list):
+        return await message.reply_text("📌 **Reply to a message** with `/broadcast`.")
+    sent_count = 0
+    failed_count = 0
+    total_users = len(user_list)
+    progress_msg = await message.reply_text(f"📢 **Broadcasting to {total_users} users...** (0/{total_users})")
+    for user_id in list(user_list):
         try:
-            await message.reply_to_message.copy(u_id)
-            success += 1
-            await asyncio.sleep(0.1)
-        except FloodWait as e:
-            await asyncio.sleep(e.value)
-            await message.reply_to_message.copy(u_id)
-            success += 1
-        except Exception:
-            failed += 1
-            
-    await msg.edit_text(f"✅ **ব্রডকাস্ট সম্পন্ন হয়েছে!**\n\n• সফল: `{success}`\n• ব্যর্থ: `{failed}`")
+            if user_id in banned_users:
+                continue
+            await message.reply_to_message.copy(user_id, protect_content=True)
+            sent_count += 1
+        except Exception as e:
+            print(f"Failed to send broadcast to user {user_id}: {e}")
+            failed_count += 1
+        if (sent_count + failed_count) % 10 == 0:
+            try:
+                await progress_msg.edit_text(
+                    f"📢 **Broadcasting...**\n✅ Sent: {sent_count}\n❌ Failed: {failed_count}\nTotal: {total_users}"
+                )
+            except MessageNotModified:
+                pass
+        await asyncio.sleep(0.1)
+    await progress_msg.edit_text(f"✅ **Broadcast complete!**\nSent to {sent_count} users.\nFailed to send to {failed_count} users.")
 
 # /delete কমান্ড হ্যান্ডলার
 @app.on_message(filters.command("delete") & filters.private & filters.user(ADMIN_ID))
 async def delete_cmd(client, message):
+    global last_filter
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        return await message.reply_text("📌 **ব্যবহার:** `/delete <ফিল্টার_নাম>`")
-        
-    keyword = args[1].lower().strip()
+        return await message.reply_text("📌 **Please provide a keyword to delete.**")
+    keyword = args[1].lower()
     if keyword in filters_dict:
         del filters_dict[keyword]
+        if keyword == last_filter:
+            last_filter = None
+        
         save_data()
-        await message.reply_text(f"✅ **ফিল্টার '{keyword}' এবং তার সমস্ত ফাইল সফলভাবে ডিলিট করা হয়েছে।**")
+        
+        await message.reply_text(f"🗑️ **Filter '{keyword}' has been deleted from the database.**")
     else:
-        await message.reply_text("❌ **এই নামে কোনো ফিল্টার পাওয়া যায়নি।**")
+        await message.reply_text(f"❌ **Filter '{keyword}' not found.**")
 
 # /restrict কমান্ড হ্যান্ডলার
 @app.on_message(filters.command("restrict") & filters.private & filters.user(ADMIN_ID))
@@ -1596,41 +1404,40 @@ async def restrict_cmd(client, message):
     global restrict_status
     restrict_status = not restrict_status
     save_data()
-    status = "ON (মেসেজ ফরওয়ার্ড করা যাবে না)" if restrict_status else "OFF (মেসেজ ফরওয়ার্ড করা যাবে)"
-    await message.reply_text(f"🔐 **প্রটেক্ট কনটেন্ট এখন:** `{status}`")
-
+    status_text = "ON" if restrict_status else "OFF"
+    await message.reply_text(f"🔒 **Message forwarding restriction is now {status_text}.**")
+    
 # /ban কমান্ড হ্যান্ডলার
 @app.on_message(filters.command("ban") & filters.private & filters.user(ADMIN_ID))
 async def ban_cmd(client, message):
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        return await message.reply_text("📌 **ব্যবহার:** `/ban <ইউজার_আইডি>`")
-        
+        return await message.reply_text("📌 **Usage:** `/ban <user_id>`", parse_mode=ParseMode.MARKDOWN)
     try:
-        b_user_id = int(args[1].strip())
-        banned_users.add(b_user_id)
+        user_id_to_ban = int(args[1])
+        if user_id_to_ban in banned_users:
+            return await message.reply_text("⚠️ **This user is already banned.**")
+        banned_users.add(user_id_to_ban)
         save_data()
-        await message.reply_text(f"✅ **ইউজার `{b_user_id}` কে সফলভাবে ব্যান করা হয়েছে।**")
+        await message.reply_text(f"✅ **User `{user_id_to_ban}` has been banned.**", parse_mode=ParseMode.MARKDOWN)
     except ValueError:
-        await message.reply_text("❌ **সঠিক ইউজার আইডি দিন।**")
+        await message.reply_text("❌ **Invalid User ID.**")
 
-# /unban  কমান্ড হ্যান্ডলার
+# /unban কমান্ড হ্যান্ডলার
 @app.on_message(filters.command("unban") & filters.private & filters.user(ADMIN_ID))
 async def unban_cmd(client, message):
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        return await message.reply_text("📌 **ব্যবহার:** `/unban <ইউজার_আইডি>`")
-        
+        return await message.reply_text("📌 **Usage:** `/unban <user_id>`", parse_mode=ParseMode.MARKDOWN)
     try:
-        u_user_id = int(args[1].strip())
-        if u_user_id in banned_users:
-            banned_users.remove(u_user_id)
-            save_data()
-            await message.reply_text(f"✅ **ইউজার `{u_user_id}` কে সফলভাবে আনব্যান করা হয়েছে।**")
-        else:
-            await message.reply_text("❌ **এই ইউজারটি ব্যান লিস্টে নেই।**")
+        user_id_to_unban = int(args[1])
+        if user_id_to_unban not in banned_users:
+            return await message.reply_text("⚠️ **This user is not banned.**")
+        banned_users.remove(user_id_to_unban)
+        save_data()
+        await message.reply_text(f"✅ **User `{user_id_to_unban}` has been unbanned.**", parse_mode=ParseMode.MARKDOWN)
     except ValueError:
-        await message.reply_text("❌ **সঠিক ইউজার আইডি দিন।**")
+        await message.reply_text("❌ **Invalid User ID.**")
 
 # /auto_delete কমান্ড হ্যান্ডলার
 @app.on_message(filters.command("auto_delete") & filters.private & filters.user(ADMIN_ID))
@@ -1638,40 +1445,386 @@ async def auto_delete_cmd(client, message):
     global autodelete_time
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        return await message.reply_text("📌 **ব্যবহার:** `/auto_delete <সময়>`\nউদাহরণ: `30m`, `1h`, `2h`, `off`")
-        
-    time_str = args[1].lower().strip()
+        return await message.reply_text("📌 **ব্যবহার:** `/auto_delete <time>`")
+    time_str = args[1].lower()
+    time_map = {'30m': 1800, '1h': 3600, '12h': 43200, '24h': 86400, 'off': 0}
+    if time_str not in time_map:
+        return await message.reply_text("❌ **ভুল সময় বিকল্প।**")
+    autodelete_time = time_map[time_str]
+    save_data()
+    if autodelete_time == 0:
+        await message.reply_text(f"🗑️ **অটো-ডিলিট বন্ধ করা হয়েছে।**")
+    else:
+        await message.reply_text(f"✅ **অটো-ডিলিট {time_str} তে সেট করা হয়েছে।**")
+
+# জয়েন স্ট্যাটাস চেক করার কলব্যাক
+@app.on_callback_query(filters.regex(r"^check_join_status$"))
+async def check_join_status_callback(client, callback_query):
+    user_id = callback_query.from_user.id
+    await callback_query.answer("Checking membership...", show_alert=True)
     
-    if time_str == "off":
-        autodelete_time = 0
+    if await is_user_member(client, user_id):
+        await callback_query.message.edit_text("✅ **You have successfully joined!**\n\n**Please go back to the chat and send your link again.**", parse_mode=ParseMode.MARKDOWN)
+    else:
+        buttons = []
+        for channel in join_channels:
+            try:
+                await client.get_chat_member(channel['id'], user_id)
+            except UserNotParticipant:
+                buttons.append([InlineKeyboardButton(f"✅ Join {channel['name']}", url=channel['link'])])
+        
+        bot_username = (await client.get_me()).username
+        try_again_url = f"https://t.me/{bot_username}"
+        buttons.append([InlineKeyboardButton("🔄 Try Again", url=try_again_url)])
+        keyboard = InlineKeyboardMarkup(buttons)
+        await callback_query.message.edit_text("❌ **You are still not a member.**", reply_markup=keyboard)
+
+# পেজিনেশন কলব্যাক হ্যান্ডলার (সংশোধিত)
+@app.on_callback_query(filters.regex(r"^page_([a-zA-Z0-9_]+)_(\d+)$"))
+async def pagination_callback(client, callback_query):
+    query = callback_query
+    await query.answer()
+    
+    parts = query.data.split('_')
+    # Use a safer method to get the keyword
+    keyword_parts = parts[1:-1]
+    keyword = "_".join(keyword_parts)
+    page = int(parts[-1])
+
+    if keyword in filters_dict:
+        filter_data = filters_dict[keyword]
+        if 'button_data' in filter_data and filter_data['button_data']:
+            reply_text = filter_data.get('message_text', "Select an option:")
+            list_text, reply_markup = create_paged_buttons(keyword, filter_data['button_data'], page)
+            try:
+                await query.edit_message_text(f"{reply_text}\n\n{list_text}", reply_markup=reply_markup, disable_web_page_preview=True)
+            except MessageNotModified:
+                pass
+                
+# New pagination callback handler for editing (NEW - List Format)
+@app.on_callback_query(filters.regex(r"^editpage_([a-zA-Z0-9]+)_(\d+)$"))
+async def edit_pagination_callback(client, callback_query):
+    query = callback_query
+    await query.answer()
+    
+    parts = query.data.split('_')
+    short_id = parts[1]
+    page = int(parts[2])
+
+    keyword_to_find = next((k for k, v in filters_dict.items() if get_short_id(k) == short_id), None)
+    
+    if keyword_to_find and keyword_to_find in filters_dict:
+        filter_data = filters_dict[keyword_to_find]
+        if 'button_data' in filter_data and filter_data['button_data']:
+            list_text, reply_markup = create_paged_edit_buttons(keyword_to_find, filter_data['button_data'], page)
+            try:
+                # Updated to edit both text and markup to prevent MessageNotModified errors
+                await query.edit_message_text(f"✅ **You are now editing the buttons for this filter.**\n\n**Select an option below:**\n\n{list_text}", reply_markup=reply_markup, disable_web_page_preview=True)
+            except MessageNotModified:
+                pass
+                
+# New callback handler for edit file pagination (NEW - List Format)
+@app.on_callback_query(filters.regex(r"^editfilepage_([a-zA-Z0-9]+)_(\d+)$"))
+async def edit_file_pagination_callback(client, callback_query):
+    query = callback_query
+    await query.answer()
+    
+    parts = query.data.split('_')
+    short_id = parts[1]
+    page = int(parts[2])
+
+    keyword_to_find = next((k for k, v in filters_dict.items() if get_short_id(k) == short_id), None)
+    
+    if keyword_to_find and keyword_to_find in filters_dict:
+        filter_data = filters_dict[keyword_to_find]
+        list_text, reply_markup = create_paged_file_edit_buttons(keyword_to_find, filter_data['file_ids'], page)
+        try:
+            await query.edit_message_text(f"✅ **You are now editing the files for this filter.**\n\n**Select an option below:**\n\n{list_text}", reply_markup=reply_markup)
+        except MessageNotModified:
+            pass
+    
+# New callback handlers for edit options (NEW)
+@app.on_callback_query(filters.regex(r"^edit_(add|delete|set)_([a-zA-Z0-9]+)$"))
+async def edit_options_callback(client, callback_query):
+    query = callback_query
+    await query.answer()
+    
+    parts = query.data.split('_')
+    action = parts[1]
+    short_id = parts[2]
+    user_id = query.from_user.id
+    
+    keyword = next((k for k, v in filters_dict.items() if v.get('type') == 'button_filter' and get_short_id(k) == short_id), None)
+
+    if not keyword:
+        return await query.edit_message_text("❌ **Filter not found.** Please start the process again with /editbutton.")
+
+    if action == "add":
+        user_states[user_id] = {"command": "edit_add_buttons", "keyword": keyword}
         save_data()
-        return await message.reply_text("❌ **অটো-ডিলিট ফিচার বন্ধ করা হয়েছে।**")
-        
-    match = re.match(r"(\d+)(m|h)", time_str)
-    if not match:
-        return await message.reply_text("❌ **ভুল ফরম্যাট!** অনুগ্রহ করে `30m` অথবা `1h` এর মত সময় দিন।")
-        
-    val = int(match.group(1))
-    unit = match.group(2)
+        await query.edit_message_text("➡️ **Please provide new button code (e.g., Button 01 = link1, [Button Name]):**")
     
-    if unit == "m":
-        autodelete_time = val * 60
-    elif unit == "h":
-        autodelete_time = val * 3600
+    elif action == "delete":
+        user_states[user_id] = {"command": "edit_delete_buttons", "keyword": keyword}
+        save_data()
+        await query.edit_message_text("➡️ **Please provide the button numbers to delete (e.g., `2, 4, 5, 7-10`):**")
+
+    elif action == "set":
+        user_states[user_id] = {"command": "edit_set_buttons", "keyword": keyword}
+        save_data()
+        await query.edit_message_text("➡️ **Please provide the button pairs to swap (e.g., `1-5, 3-8`), move a single button (e.g., `6u-4`), or list all `a 1,3,4...`:**")
+
+# Callbacks for edit file options (NEW)
+@app.on_callback_query(filters.regex(r"^editfile_(add|delete|set)_([a-zA-Z0-9]+)$"))
+async def edit_file_options_callback(client, callback_query):
+    query = callback_query
+    await query.answer()
+    
+    parts = query.data.split('_')
+    action = parts[1]
+    short_id = parts[2]
+    user_id = query.from_user.id
+    
+    keyword = next((k for k, v in filters_dict.items() if v.get('type') != 'button_filter' and get_short_id(k) == short_id), None)
+
+    if not keyword:
+        return await query.edit_message_text("❌ **Filter not found.** Please start the process again with /edit_filter.")
+
+    if action == "add":
+        user_states[user_id] = {"command": "edit_file_awaiting_forwards", "keyword": keyword}
+        save_data()
+        await query.edit_message_text("➡️ **Please forward messages to add or send ID (e.g., [id] 123,456). Send `ok` when done:**")
+    
+    elif action == "delete":
+        user_states[user_id] = {"command": "edit_file_delete", "keyword": keyword}
+        save_data()
+        await query.edit_message_text("➡️ **Please provide the file numbers to delete (e.g., `2, 4, 5, 7-10`):**")
+
+    elif action == "set":
+        user_states[user_id] = {"command": "edit_file_set", "keyword": keyword}
+        save_data()
+        await query.edit_message_text("➡️ **Please provide the file pairs to swap (e.g., `1-5, 3-8`), move a single file (e.g., `6u-4`), or list all `a 1,3,4...`:**")
+
+# Callback for confirm file delete from channel too
+@app.on_callback_query(filters.regex(r"^editfile_delchan_(yes|no)$"))
+async def editfile_delchan_callback(client, callback_query):
+    action = callback_query.data.split('_')[2]
+    user_id = callback_query.from_user.id
+    state = user_states.get(user_id)
+    
+    if not state or state.get("command") != "confirm_file_channel_delete":
+        return await callback_query.answer("❌ Invalid state.", show_alert=True)
+        
+    keyword = state["keyword"]
+    delete_indices = state["delete_indices"]
+    deleted_ids = state["deleted_ids"]
+    
+    filters_dict[keyword]['file_ids'] = [
+        fid for i, fid in enumerate(filters_dict[keyword]['file_ids']) 
+        if i + 1 not in delete_indices
+    ]
+    
+    if action == "yes":
+        for file_id in deleted_ids:
+            try: await app.delete_messages(CHANNEL_ID, file_id)
+            except: pass
+        await callback_query.answer("✅ Files deleted from channel and removed from filter.")
+    else:
+        await callback_query.answer("✅ Files removed from filter only.")
         
     save_data()
-    await message.reply_text(f"⏱️ **অটো-ডিলিট সময় সেট করা হয়েছে:** `{time_str}` (ফাইল পাঠানোর পর এই সময় শেষে ডিলিট হবে)")
+    user_states[user_id] = {"command": "edit_file_menu", "keyword": keyword, "page": 1}
+    save_data()
+    
+    filter_data = filters_dict[keyword]
+    list_text, keyboard = create_paged_file_edit_buttons(keyword, filter_data['file_ids'], 1)
+    await callback_query.message.edit_text(f"🗑️ **Files have been updated.**\n\n**Select an option below:**\n\n{list_text}", reply_markup=keyboard)
 
-# ফরওয়ার্ড করা মেসেজ থেকে আইডি নেওয়ার চ্যানেল হ্যান্ডলার (নিউ)
-@app.on_message(filters.private & filters.user(ADMIN_ID) & filters.forwarded)
-async def forwarded_id_handler(client, message):
-    # Channel target ID extractor handler
-    if message.forward_from_chat:
-        await message.reply_text(f"📢 **Forwarded Chat/Channel Info:**\n\n• **Title:** `{message.forward_from_chat.title}`\n• **ID:** `{message.forward_from_chat.id}`")
-    elif message.forward_from:
-        await message.reply_text(f"👤 **Forwarded User Info:**\n\n• **Name:** `{message.forward_from.first_name}`\n• **ID:** `{message.forward_from.id}`")
 
-# Catch manual configuration fallback delete query regex pattern
+# Callbacks for Global Files Actions (NEW)
+@app.on_callback_query(filters.regex(r"^gf_action_(up|down)$"))
+async def gf_add_callback(client, callback_query):
+    query = callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    direction = query.data.split('_')[-1]
+    
+    user_states[user_id] = {"command": f"gf_awaiting_{direction}"}
+    save_data()
+    await query.edit_message_text(f"➡️ **Please forward messages for {direction.title()} Global Files. Send `ok` when done:**")
+
+@app.on_callback_query(filters.regex(r"^gf_del_(up|down)$"))
+async def gf_del_view_callback(client, callback_query):
+    direction = callback_query.data.split('_')[2]
+    file_list = global_files.get(direction, [])
+    if not file_list:
+        return await callback_query.answer(f"No files in {direction}.", show_alert=True)
+        
+    keyboard = []
+    for i, file_id in enumerate(file_list):
+        keyboard.append([
+            InlineKeyboardButton(f"File #{i+1}", callback_data="ignore"),
+            InlineKeyboardButton("🗑️ Delete", callback_data=f"gf_rm_{direction}_{i}")
+        ])
+    await callback_query.edit_message_text(f"**Delete Global Files ({direction.upper()}):**", reply_markup=InlineKeyboardMarkup(keyboard))
+    
+@app.on_callback_query(filters.regex(r"^gf_rm_(up|down)_(\d+)$"))
+async def gf_rm_file_callback(client, callback_query):
+    parts = callback_query.data.split('_')
+    direction = parts[2]
+    idx = int(parts[3])
+    
+    file_list = global_files.get(direction, [])
+    if idx < len(file_list):
+        file_id = file_list.pop(idx)
+        save_data()
+        try:
+            await app.delete_messages(CHANNEL_ID, file_id)
+        except Exception:
+            pass
+        
+    keyboard = []
+    for i, fid in enumerate(file_list):
+        keyboard.append([
+            InlineKeyboardButton(f"File #{i+1}", callback_data="ignore"),
+            InlineKeyboardButton("🗑️ Delete", callback_data=f"gf_rm_{direction}_{i}")
+        ])
+    if not keyboard:
+        await callback_query.edit_message_text(f"**No more files in {direction.upper()}.**")
+    else:
+        await callback_query.edit_message_text(f"**Delete Global Files ({direction.upper()}):**", reply_markup=InlineKeyboardMarkup(keyboard))
+
+# Channel ID Callbacks (NEW)
+@app.on_callback_query(filters.regex(r"^cid_(channel|file|owner)$"))
+async def cid_callback(client, callback_query):
+    action = callback_query.data.split('_')[1]
+    user_id = callback_query.from_user.id
+    
+    if action == "owner":
+        await callback_query.message.edit_text(f"✅ **Admin ID:**\n`{ADMIN_ID}`", parse_mode=ParseMode.MARKDOWN)
+        return
+        
+    user_states[user_id] = {"command": f"cid_awaiting_{action}"}
+    
+    if action == "file":
+        temp_files[user_id] = []
+        msg = "➡️ **Please forward message(s) from the file store. Send `ok` when done.**"
+    elif action == "channel":
+        msg = "➡️ **Please forward a message from the Channel or Group.**"
+        
+    save_data()
+    await callback_query.message.edit_text(msg)
+
+# Callbacks for Add Channel functionality
+@app.on_callback_query(filters.regex(r"^del_schannel_(.+)$"))
+async def del_schannel_callback(client, callback_query):
+    chan_id = int(callback_query.data.split('_')[2])
+    global saved_send_channels
+    saved_send_channels = [c for c in saved_send_channels if c['id'] != chan_id]
+    save_data()
+    
+    keyboard = []
+    for chan in saved_send_channels:
+        keyboard.append([
+            InlineKeyboardButton(chan['name'], callback_data="ignore"),
+            InlineKeyboardButton("🗑️ Delete", callback_data=f"del_schannel_{chan['id']}")
+        ])
+    keyboard.append([InlineKeyboardButton("➕ Add Channel", callback_data="add_schannel")])
+    await callback_query.message.edit_text("➡️ **Manage Channels for /send command:**", reply_markup=InlineKeyboardMarkup(keyboard))
+    await callback_query.answer("Channel deleted from list.")
+    
+@app.on_callback_query(filters.regex(r"^add_schannel$"))
+async def add_schannel_callback(client, callback_query):
+    user_id = callback_query.from_user.id
+    user_states[user_id] = {"command": "awaiting_forward_schannel"}
+    save_data()
+    await callback_query.message.edit_text("➡️ **Please forward a message from the channel you want to add.**")
+
+# Callbacks for Send to Multiple Channels functionality
+@app.on_callback_query(filters.regex(r"^send_chan_(.+)$"))
+async def send_chan_callback(client, callback_query):
+    action = callback_query.data.split('_', 2)[2]
+    user_id = callback_query.from_user.id
+    state = user_states.get(user_id)
+    
+    if not state or state.get("command") != "sending_filter":
+        return await callback_query.answer("❌ Context lost. Try /send again.", show_alert=True)
+        
+    keyword = state["keyword"]
+    filter_data = filters_dict.get(keyword)
+    if not filter_data or not filter_data.get('file_ids'):
+        return await callback_query.answer("❌ Filter data missing.", show_alert=True)
+        
+    targets = []
+    if action == "all":
+        targets = [c['id'] for c in saved_send_channels]
+    else:
+        targets = [int(action)]
+        
+    await callback_query.message.edit_text("⏳ **Sending files... Please wait.**")
+    
+    file_ids_to_send = []
+    if 'up' in global_files and global_files['up']:
+        file_ids_to_send.extend(global_files['up'])
+    file_ids_to_send.extend(filter_data['file_ids'])
+    if 'down' in global_files and global_files['down']:
+        file_ids_to_send.extend(global_files['down'])
+        
+    for target_chat_id in targets:
+        for file_id in file_ids_to_send:
+            try:
+                await app.copy_message(target_chat_id, CHANNEL_ID, file_id, protect_content=restrict_status)
+                await asyncio.sleep(0) 
+            except FloodWait as e:
+                await asyncio.sleep(e.value)
+                await app.copy_message(target_chat_id, CHANNEL_ID, file_id, protect_content=restrict_status)
+            except Exception as e:
+                print(f"Error copying to {target_chat_id}: {e}")
+    
+    await callback_query.message.edit_text(f"✅ **All files for '{keyword}' sent successfully!**")
+    del user_states[user_id]
+    save_data()
+
+# Start message callback handlers (New)
+@app.on_callback_query(filters.regex(r"^add_start_message$"))
+async def add_start_message_callback(client, callback_query):
+    user_id = callback_query.from_user.id
+    await callback_query.answer()
+    user_states[user_id] = {"command": "awaiting_start_message_text"}
+    save_data()
+    await callback_query.message.edit_text("➡️ **Please send the new start message text.**")
+
+@app.on_callback_query(filters.regex(r"^view_start_message$"))
+async def view_start_message_callback(client, callback_query):
+    await callback_query.answer()
+    if not start_message_data:
+        return await callback_query.message.reply_text("❌ **No custom start message has been saved yet.**")
+    
+    text = start_message_data['text']
+    buttons_text = start_message_data['buttons']
+    
+    try:
+        buttons = parse_start_message_buttons_from_text(buttons_text)
+        await callback_query.message.reply_text(
+            f"✅ **Saved Start Message:**\n\n{text}",
+            reply_markup=buttons,
+            parse_mode=ParseMode.MARKDOWN
+        )
+    except Exception as e:
+        await callback_query.message.reply_text(
+            f"❌ **Error viewing message due to button format error:**\n\n{e}\n\n"
+            f"**Text:**\n`{text}`\n\n**Buttons Code:**\n`{buttons_text}`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+    
+    delete_keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🗑️ Delete Start Message", callback_data="delete_start_message")]
+    ])
+    await callback_query.message.reply_text(
+        "**Press the button below to delete the saved start message.**",
+        reply_markup=delete_keyboard
+    )
+    
 @app.on_callback_query(filters.regex(r"^delete_start_message$"))
 async def delete_start_message_callback(client, callback_query):
     global start_message_data
@@ -1700,14 +1853,10 @@ def run_flask_and_pyrogram():
     connect_to_mongodb()
     load_data()
     flask_thread = threading.Thread(target=lambda: app_flask.run(host="0.0.0.0", port=PORT, use_reloader=False))
-    flask_thread.daemon = True
     flask_thread.start()
-    
     ping_thread = threading.Thread(target=ping_service)
-    ping_thread.daemon = True
     ping_thread.start()
-    
-    print("Starting Pyrogram Bot...")
+    print("Starting TA File Share Bot...")
     app.run()
 
 if __name__ == "__main__":
