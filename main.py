@@ -612,9 +612,8 @@ async def send_cmd(client, message):
     
     keyword = args[1].lower().strip()
     
-    if keyword != "letter":
-        if keyword not in filters_dict or not filters_dict[keyword].get('file_ids'):
-            return await message.reply_text("❌ **Filter not found or it has no files.**")
+    if keyword != "letter" and (keyword not in filters_dict or not filters_dict[keyword].get('file_ids')):
+        return await message.reply_text("❌ **Filter not found or it has no files.**")
     
     if not saved_send_channels:
         return await message.reply_text("❌ **No channels have been added yet. Use /add_channel first.**")
@@ -1332,16 +1331,20 @@ async def channel_delete_handler(client, messages):
                 await app.send_message(LOG_CHANNEL_ID, "📝 **দ্রষ্টব্য:** শেষ সক্রিয় ফিল্টারটি মুছে ফেলা হয়েছে।")
                 save_data()
 
-# --- Auto-delete Pin Message (Modified to delete anywhere bot has power) ---
+# --- Auto-delete Pin Message ---
 @app.on_message(filters.service)
 async def service_message_handler(client, message):
     if message.pinned_message:
-        try:
-            await asyncio.sleep(5)
-            await app.delete_messages(message.chat.id, message.id)
-            print(f"Successfully deleted pin service message {message.id}.")
-        except Exception as e:
-            print(f"Error deleting pin service message {message.id}: {e}")
+        chat_id = message.chat.id
+        # Allow deleting service messages from the file store channel OR any saved send channels
+        valid_chats = [CHANNEL_ID] + [c['id'] for c in saved_send_channels]
+        if chat_id in valid_chats:
+            try:
+                await asyncio.sleep(5)
+                await app.delete_messages(chat_id, message.id)
+                print(f"Successfully deleted pin service message {message.id} in chat {chat_id}.")
+            except Exception as e:
+                print(f"Error deleting pin service message {message.id} in chat {chat_id}: {e}")
 
 # /broadcast কমান্ড হ্যান্ডলার
 @app.on_message(filters.command("broadcast") & filters.private & filters.user(ADMIN_ID))
@@ -1744,63 +1747,54 @@ async def send_chan_callback(client, callback_query):
         
     keyword = state["keyword"]
     
+    if keyword != "letter":
+        filter_data = filters_dict.get(keyword)
+        if not filter_data or not filter_data.get('file_ids'):
+            return await callback_query.answer("❌ Filter data missing.", show_alert=True)
+        
     targets = []
     if action == "all":
         targets = [c['id'] for c in saved_send_channels]
     else:
         targets = [int(action)]
         
-    if keyword == "letter":
-        await callback_query.message.edit_text("⏳ **Sending letter messages... Please wait.**")
-        for target_chat_id in targets:
-            try:
-                part_msg = await app.send_message(target_chat_id, "<b>Part</b>", parse_mode=ParseMode.HTML)
-                await app.pin_chat_message(target_chat_id, part_msg.id)
-            except Exception as e:
-                print(f"Error pinning Part message to {target_chat_id}: {e}")
-            
-            for ascii_val in range(65, 91):
-                letter = chr(ascii_val)
-                msg_text = f"<b>Letter = {letter}</b>\n\n"
-                for i in range(1, 21):
-                    msg_text += f"<blockquote expandable><b>{{{i:02d}}}</b>\n\n<b>Season 01</b>\n\n\n<b>Coming Soon...</b></blockquote>\n\n"
-                try:
-                    await app.send_message(target_chat_id, msg_text, parse_mode=ParseMode.HTML)
-                    await asyncio.sleep(0.5)
-                except FloodWait as e:
-                    await asyncio.sleep(e.value)
-                    await app.send_message(target_chat_id, msg_text, parse_mode=ParseMode.HTML)
-                except Exception as e:
-                    print(f"Error sending letter to {target_chat_id}: {e}")
-
-        await callback_query.message.edit_text(f"✅ **Letter messages sent successfully!**")
-        del user_states[user_id]
-        save_data()
-        return
-
-    filter_data = filters_dict.get(keyword)
-    if not filter_data or not filter_data.get('file_ids'):
-        return await callback_query.answer("❌ Filter data missing.", show_alert=True)
-        
     await callback_query.message.edit_text("⏳ **Sending files... Please wait.**")
     
-    file_ids_to_send = []
-    if 'up' in global_files and global_files['up']:
-        file_ids_to_send.extend(global_files['up'])
-    file_ids_to_send.extend(filter_data['file_ids'])
-    if 'down' in global_files and global_files['down']:
-        file_ids_to_send.extend(global_files['down'])
-        
     for target_chat_id in targets:
-        for file_id in file_ids_to_send:
+        if keyword == "letter":
             try:
-                await app.copy_message(target_chat_id, CHANNEL_ID, file_id, protect_content=restrict_status)
-                await asyncio.sleep(0) 
-            except FloodWait as e:
-                await asyncio.sleep(e.value)
-                await app.copy_message(target_chat_id, CHANNEL_ID, file_id, protect_content=restrict_status)
+                # 1. Send and pin the Part message
+                part_msg = await app.send_message(target_chat_id, "<b>Part</b>", parse_mode=ParseMode.HTML)
+                await app.pin_chat_message(target_chat_id, part_msg.id)
+                await asyncio.sleep(1) # Wait a bit after pinning
+                
+                # 2. Send the 26 Letter messages
+                for ascii_val in range(65, 91):
+                    letter = chr(ascii_val)
+                    msg_text = f"<b>Letter = {letter}</b>\n\n"
+                    for i in range(1, 21):
+                        msg_text += f"<blockquote expandable><b>{{{i:02d}}}</b>\n\n<b>Season 01</b>\n\n<b>Coming Soon...</b></blockquote>\n\n"
+                    await app.send_message(target_chat_id, msg_text, parse_mode=ParseMode.HTML)
+                    await asyncio.sleep(0.5) # Flood wait prevention
             except Exception as e:
-                print(f"Error copying to {target_chat_id}: {e}")
+                print(f"Error sending letter to {target_chat_id}: {e}")
+        else:
+            file_ids_to_send = []
+            if 'up' in global_files and global_files['up']:
+                file_ids_to_send.extend(global_files['up'])
+            file_ids_to_send.extend(filter_data['file_ids'])
+            if 'down' in global_files and global_files['down']:
+                file_ids_to_send.extend(global_files['down'])
+                
+            for file_id in file_ids_to_send:
+                try:
+                    await app.copy_message(target_chat_id, CHANNEL_ID, file_id, protect_content=restrict_status)
+                    await asyncio.sleep(0) 
+                except FloodWait as e:
+                    await asyncio.sleep(e.value)
+                    await app.copy_message(target_chat_id, CHANNEL_ID, file_id, protect_content=restrict_status)
+                except Exception as e:
+                    print(f"Error copying to {target_chat_id}: {e}")
     
     await callback_query.message.edit_text(f"✅ **All files for '{keyword}' sent successfully!**")
     del user_states[user_id]
@@ -1882,4 +1876,3 @@ def run_flask_and_pyrogram():
 
 if __name__ == "__main__":
     run_flask_and_pyrogram()
-
