@@ -244,7 +244,8 @@ def create_paged_buttons(keyword, button_list, page, page_size=10):
             text += f"**{i}.** **{button_data['text']}**\n"
             
         if i < min(end_index, len(button_list)):
-            text += "<---------->\n"
+            # \u200B (Zero-width space) দিয়ে হাইফেনগুলো আলাদা করা হয়েছে, যাতে Markdown strikethrough না হয়
+            text += "<" + "-\u200B" * 9 + "->\n"
     
     keyboard = []
     total_pages = max(1, (len(button_list) + page_size - 1) // page_size)
@@ -1762,22 +1763,35 @@ async def send_chan_callback(client, callback_query):
     
     for target_chat_id in targets:
         if keyword == "letter":
+            # 1. Send and pin the Part message
             try:
-                # 1. Send and pin the Part message
                 part_msg = await app.send_message(target_chat_id, "<b>Part</b>", parse_mode=ParseMode.HTML)
                 await app.pin_chat_message(target_chat_id, part_msg.id)
-                await asyncio.sleep(1) # Wait a bit after pinning
-                
-                # 2. Send the 26 Letter messages
-                for ascii_val in range(65, 91):
-                    letter = chr(ascii_val)
-                    msg_text = f"<b>Letter = {letter}</b>\n\n"
-                    for i in range(1, 21):
-                        msg_text += f"<blockquote expandable><b>{{{i:02d}}}</b>\n\n<b>Season 01</b>\n\n<b>Coming Soon...</b></blockquote>\n\n"
-                    await app.send_message(target_chat_id, msg_text, parse_mode=ParseMode.HTML)
-                    await asyncio.sleep(0.5) # Flood wait prevention
+            except FloodWait as e:
+                await asyncio.sleep(e.value)
+                part_msg = await app.send_message(target_chat_id, "<b>Part</b>", parse_mode=ParseMode.HTML)
+                await app.pin_chat_message(target_chat_id, part_msg.id)
             except Exception as e:
-                print(f"Error sending letter to {target_chat_id}: {e}")
+                print(f"Error sending Part msg to {target_chat_id}: {e}")
+                
+            await asyncio.sleep(1) # ১ সেকেন্ড ডিলে
+            
+            # 2. Send the 26 Letter messages
+            for ascii_val in range(65, 91):
+                letter = chr(ascii_val)
+                msg_text = f"<b>Letter = {letter}</b>\n\n"
+                for i in range(1, 21):
+                    msg_text += f"<blockquote expandable><b>{{{i:02d}}}</b>\n\n<b>Season 01</b>\n\n<b>Coming Soon...</b></blockquote>\n\n"
+                
+                try:
+                    await app.send_message(target_chat_id, msg_text, parse_mode=ParseMode.HTML)
+                except FloodWait as e:
+                    await asyncio.sleep(e.value)
+                    await app.send_message(target_chat_id, msg_text, parse_mode=ParseMode.HTML)
+                except Exception as e:
+                    print(f"Error sending letter {letter} to {target_chat_id}: {e}")
+                    
+                await asyncio.sleep(1) # ১ সেকেন্ড পর পর
         else:
             file_ids_to_send = []
             if 'up' in global_files and global_files['up']:
