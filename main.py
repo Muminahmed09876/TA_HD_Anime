@@ -1781,7 +1781,7 @@ async def send_chan_callback(client, callback_query):
                 letter = chr(ascii_val)
                 msg_text = f"<b>Letter = {letter}</b>\n\n"
                 for i in range(1, 21):
-                    msg_text += f"<blockquote expandable><b>{{{i:02d}}}</b>\n\n<b>Season 01</b>\n\n<b>Coming Soon...</b></blockquote>\n\n"
+                    msg_text += f"<blockquote expandable><b>{{{i:02d}}}</b>\n\n<b>Season 01</b>\n\n\n<b>Coming Soon...</b></blockquote>\n\n"
                 
                 try:
                     await app.send_message(target_chat_id, msg_text, parse_mode=ParseMode.HTML)
