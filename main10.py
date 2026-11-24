@@ -129,10 +129,15 @@ def ping_service():
         time.sleep(600)
 
 # --- Telegram Bot HTTP API Helper ---
+tg_session = requests.Session()
+tg_adapter = requests.adapters.HTTPAdapter(pool_connections=20, pool_maxsize=20)
+tg_session.mount("https://", tg_adapter)
+tg_session.mount("http://", tg_adapter)
+
 def tg_request(method, payload):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/{method}"
     try:
-        response = requests.post(url, json=payload, timeout=15)
+        response = tg_session.post(url, json=payload, timeout=15)
         return response.json()
     except Exception as e:
         print(f"Error in tg_request ({method}): {e}")
@@ -480,6 +485,23 @@ def parse_swap_pairs(text, max_index):
             raise ValueError("Invalid pair format. Use `i-j` or `iu-j`.")
     return actions
 
+async def _copy_single_message_fast(user_chat_id, channel_id, msg_id, protect):
+    payload = {
+        "chat_id": user_chat_id,
+        "from_chat_id": channel_id,
+        "message_id": msg_id,
+        "protect_content": protect,
+    }
+    copy_res = await asyncio.to_thread(tg_request, "copyMessage", payload)
+    if not copy_res.get("ok") and copy_res.get("error_code") == 429:
+        retry_after = copy_res.get("parameters", {}).get("retry_after", 5)
+        await asyncio.sleep(retry_after)
+        copy_res = await asyncio.to_thread(tg_request, "copyMessage", payload)
+    if copy_res.get("ok") and "result" in copy_res:
+        return copy_res["result"].get("message_id")
+    print(f"Error copying message {msg_id}: {copy_res}")
+    return None
+
 # --- Message Handlers (Pyrogram) ---
 # /start কমান্ড হ্যান্ডলার (পরিবর্তিত)
 @app.on_message(filters.command("start") & filters.private)
@@ -579,16 +601,19 @@ async def start_cmd(client, message):
                     file_ids_to_send.extend(global_files['down'])
 
             sent_message_ids = []
-            for file_id in file_ids_to_send:
-                try:
-                    sent_msg = await app.copy_message(message.chat.id, CHANNEL_ID, file_id, protect_content=apply_restrict)
-                    sent_message_ids.append(sent_msg.id)
-                except FloodWait as e:
-                    await asyncio.sleep(e.value)
-                    sent_msg = await app.copy_message(message.chat.id, CHANNEL_ID, file_id, protect_content=apply_restrict)
-                    sent_message_ids.append(sent_msg.id)
-                except Exception as e:
-                    print(f"Error copying message {file_id}: {e}")
+            batch_size = 5
+            for idx in range(0, len(file_ids_to_send), batch_size):
+                batch = file_ids_to_send[idx:idx + batch_size]
+                tasks = [
+                    _copy_single_message_fast(message.chat.id, CHANNEL_ID, file_id, apply_restrict)
+                    for file_id in batch
+                ]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                for res in results:
+                    if isinstance(res, int):
+                        sent_message_ids.append(res)
+                    elif isinstance(res, Exception):
+                        print(f"Error copying message: {res}")
             
             if show_filter_msg:
                 await message.reply_text("🎉 **All files sent!**")
